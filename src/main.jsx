@@ -5,12 +5,10 @@ import {
   BadgeCheck,
   BrainCircuit,
   BriefcaseBusiness,
-  CheckCircle2,
   ChevronRight,
   FileText,
   Gauge,
   Layers3,
-  Lightbulb,
   PenLine,
   Route,
   Sparkles,
@@ -48,7 +46,7 @@ const dimensions = [
   { name: '经历匹配', value: 84, note: 'AI 产品 + 商业化运营可形成主线' },
   { name: '能力覆盖', value: 76, note: '产品、AI、数据、协同均有证据' },
   { name: '证据强度', value: 81, note: '有项目和业务闭环，但需量化补强' },
-  { name: '简历表达', value: 66, note: '当前偏“做了什么”，需改成“判断 + 结果”' },
+  { name: '表达命中', value: 66, note: '需把“做了什么”改成“判断 + 结果”' },
 ];
 
 const evidenceTimeline = [
@@ -109,7 +107,7 @@ function Landing({ onStart }) {
     <div className="hero-grid">
       <div className="hero-copy">
         <div className="issue-tag"><span>ISSUE 01</span><i />AI 求职不该只靠感觉</div>
-        <h1>先判断值不值得投，<br/>再证明你为什么配。</h1>
+        <h1><span>先判断值不值得投，</span><span>再证明你为什么配。</span></h1>
         <p>Eviden 把 JD、简历和目标岗位拆成一条证据链：匹配在哪里，缺口在哪里，简历应该怎么改，面试前该准备什么。</p>
         <div className="hero-actions">
           <button className="primary" onClick={onStart}>分析一个岗位 <ArrowRight size={18}/></button>
@@ -170,13 +168,25 @@ function InputPanel({ onAnalyze }) {
 }
 
 function ResultPage({ result, onBack }) {
-  const radar = useMemo(() => dimensions.map(d => ({ ...d, value: d.name === '简历表达' ? 66 : d.value })), []);
+  const radar = useMemo(() => dimensions.map(d => ({ ...d, value: d.name === '表达命中' ? 66 : d.value })), []);
 
   return <section className="workspace result-page">
     <nav className="nav in-app"><Brand /><button className="secondary" onClick={onBack}>重新分析</button></nav>
-    <div className="page-head result-head">
-      <div><small>STEP 02 / REPORT</small><h2>{result.target} · 证据链匹配报告</h2><p>{result.summary}</p></div>
-      <div className="head-actions"><button className="secondary" onClick={onBack}>换一个 JD</button><button className="primary">导出行动清单</button></div>
+    <div className="result-cover editorial-card">
+      <div className="result-cover-left">
+        <small>STEP 02 / FIT REPORT</small>
+        <h2>{result.target}<br/>证据链匹配报告</h2>
+        <p>{result.summary}</p>
+      </div>
+      <div className="result-cover-score"><span>FIT SCORE</span><b>{result.score}</b><em>{result.action}</em></div>
+      <div className="result-cover-actions"><button className="secondary" onClick={onBack}>换一个 JD</button><button className="primary">导出行动清单</button></div>
+    </div>
+
+    <div className="report-kpis">
+      <div><span>投递优先级</span><b>A-</b><p>建议准备后投递</p></div>
+      <div><span>准备成本</span><b>2h</b><p>重写简历 + 案例复盘</p></div>
+      <div><span>核心证据</span><b>4</b><p>AI / 数据 / 商业化 / 协同</p></div>
+      <div><span>主要风险</span><b>3</b><p>数据、用户研究、表达量化</p></div>
     </div>
 
     <div className="result-grid">
@@ -186,7 +196,9 @@ function ResultPage({ result, onBack }) {
           <div className="dim-grid">{radar.map(d => <div className="dim" key={d.name}><div><b>{d.name}</b><span>{d.value}</span></div><i><em style={{ width: `${d.value}%` }} /></i><p>{d.note}</p></div>)}</div>
         </div>
 
-        <div className="panel editorial-card"><div className="panel-head"><b>证据匹配地图</b><span>JD 要求 → 简历证据</span></div>{result.evidence.map(item => <div className="evidence-row" key={item.req}><div><b>{item.req}</b><p>{item.proof}</p></div><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{item.level}</span></div>)}</div>
+        <div className="panel editorial-card evidence-panel"><div className="panel-head"><b>证据匹配地图</b><span>JD 要求 → 简历证据 → 强度判断</span></div>{result.evidence.map((item, index) => <div className="evidence-row" key={item.req}><span className="row-index">0{index + 1}</span><div><b>{item.req}</b><p>{item.proof}</p></div><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{item.level}</span></div>)}</div>
+
+        <div className="panel editorial-card action-panel"><div className="panel-head"><b>投递前 3 步</b><span>把报告转成真实行动</span></div><div className="action-steps"><div><span>01</span><b>重写简历主线</b><p>把“运营支持”改写为“AI 产品判断 + 商业化落地”。</p></div><div><span>02</span><b>准备证据案例</b><p>准备 Aiva Agent 迭代和 Dashboard 排查两个可追问案例。</p></div><div><span>03</span><b>补齐风险点</b><p>为 SQL、用户研究、指标评估准备诚实但主动的回答。</p></div></div></div>
 
         <div className="panel editorial-card"><div className="panel-head"><b>简历改写建议</b><span>从职责描述改成产品证据</span></div>{result.rewrites.map((r, i) => <div className="rewrite-row" key={i}><div><label>现在这样写</label><p>{r.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议改成</label><p>{r.after}</p></div></div>)}</div>
       </main>
