@@ -50,10 +50,10 @@ const dimensions = [
 ];
 
 const evidenceTimeline = [
-  { label: 'JD 要求', value: 'AI 产品判断 / Agent 工作流 / 数据分析' },
-  { label: '已有证据', value: 'Aiva Agent、Content Copilot、TTMS、Dashboard 排查' },
-  { label: '缺口判断', value: 'SQL 与用户研究证据需要更显性' },
-  { label: '投递动作', value: '先改简历 bullet，再准备 2 个追问案例' },
+  { label: '目标岗位', value: 'AI 产品经理 / Agent 产品方向' },
+  { label: '匹配证据', value: 'AI 工作流、商业化产品运营、数据排查' },
+  { label: '关键缺口', value: 'SQL 能力、用户研究、结果量化' },
+  { label: '下一步', value: '优化简历表达，准备两组追问案例' }
 ];
 
 function analyze(resume, jd, target) {
@@ -106,17 +106,17 @@ function Landing({ onStart }) {
 
     <div className="hero-grid">
       <div className="hero-copy">
-        <div className="issue-tag"><span>ISSUE 01</span><i />AI 求职不该只靠感觉</div>
-        <h1><span>先判断值不值得投，</span><span>再证明你为什么配。</span></h1>
-        <p>Eviden 把 JD、简历和目标岗位拆成一条证据链：匹配在哪里，缺口在哪里，简历应该怎么改，面试前该准备什么。</p>
+        <div className="issue-tag"><span>ISSUE 01</span><i />Evidence-based Application Strategy</div>
+        <h1><span>基于证据评估岗位匹配，</span><span>生成可执行申请策略。</span></h1>
+        <p>Eviden 将 JD、简历与目标岗位拆解为可验证的证据链，明确匹配优势、风险缺口、简历表达与投递前准备动作。</p>
         <div className="hero-actions">
           <button className="primary" onClick={onStart}>分析一个岗位 <ArrowRight size={18}/></button>
           <button className="secondary" onClick={onStart}>查看样例报告</button>
         </div>
         <div className="hero-stats">
-          <div><b>78</b><span>岗位匹配分</span></div>
-          <div><b>4</b><span>可用证据</span></div>
-          <div><b>2h</b><span>投递前准备</span></div>
+          <div><b>78</b><span>目标岗位匹配分</span></div>
+          <div><b>04</b><span>核心匹配证据</span></div>
+          <div><b>2h</b><span>预计准备成本</span></div>
         </div>
       </div>
 
@@ -124,8 +124,8 @@ function Landing({ onStart }) {
         <div className="cover-top"><span>CAREER EVIDENCE MAP</span><span>2026</span></div>
         <div className="cover-title">FIT<br/>REPORT</div>
         <div className="cover-grid">
-          <div className="score-stamp"><span>匹配分</span><b>78</b></div>
-          <div className="cover-note"><b>建议：准备后投递</b><p>AI 产品与商业化产品运营是主要优势；数据和用户研究证据需要补强。</p></div>
+          <div className="score-stamp"><span>目标岗位匹配分</span><b>78</b></div>
+          <div className="cover-note"><b>AI 产品经理 · 准备后投递</b><p>优势集中在 AI 产品理解与商业化运营；需补强数据分析和用户研究证据。</p></div>
         </div>
         <div className="tearline" />
         <div className="cover-list">
@@ -150,7 +150,7 @@ function InputPanel({ onAnalyze }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit}>生成报告</button></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>把岗位和经历放在同一张桌面上。</h2><p>先不急着“让 AI 改简历”，先判断：这个岗位到底值不值得投，以及你能拿什么证明自己匹配。</p></div>
+      <div><small>STEP 01 / INPUT</small><h2>建立岗位与经历的对照关系。</h2><p>上传或粘贴目标 JD 与个人经历后，Eviden 会先识别岗位要求，再抽取可验证经历证据，形成匹配判断与申请策略。</p></div>
       <button className="primary" onClick={submit} disabled={loading}>{loading ? '正在生成证据链…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
 
@@ -178,7 +178,7 @@ function ResultPage({ result, onBack }) {
         <h2>{result.target}<br/>证据链匹配报告</h2>
         <p>{result.summary}</p>
       </div>
-      <div className="result-cover-score"><span>FIT SCORE</span><b>{result.score}</b><em>{result.action}</em></div>
+      <div className="result-cover-score"><span>目标岗位匹配分</span><b>{result.score}</b><em>{result.target}</em></div>
       <div className="result-cover-actions"><button className="secondary" onClick={onBack}>换一个 JD</button><button className="primary">导出行动清单</button></div>
     </div>
 
@@ -192,7 +192,7 @@ function ResultPage({ result, onBack }) {
     <div className="result-grid">
       <main className="result-main">
         <div className="score-card editorial-card">
-          <div className="score-block"><span>岗位匹配分</span><b>{result.score}</b><small>/ 100</small></div>
+          <div className="score-block"><span>{result.target}</span><b>{result.score}</b><small>目标岗位匹配分 / 100</small></div>
           <div className="dim-grid">{radar.map(d => <div className="dim" key={d.name}><div><b>{d.name}</b><span>{d.value}</span></div><i><em style={{ width: `${d.value}%` }} /></i><p>{d.note}</p></div>)}</div>
         </div>
 
