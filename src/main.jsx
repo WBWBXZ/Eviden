@@ -98,50 +98,43 @@ function Brand() {
 }
 
 function Landing({ onStart }) {
-  return <section className="landing product-home">
+  return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>匹配报告</span><span>证据解释</span><span>简历建议</span><button onClick={onStart}>开始分析</button></div>
+      <div className="nav-links"><span>简历 × JD</span><span>匹配报告</span><span>申请策略</span><button onClick={onStart}>开始分析</button></div>
     </nav>
 
-    <div className="product-hero">
-      <div className="product-copy">
-        <div className="product-eyebrow">JD × Resume Intelligence</div>
-        <h1>看清一份简历，<br/>到底匹配哪一个岗位。</h1>
-        <p>Eviden 会把用户上传的简历与目标 JD 放在同一个分析框架下，生成岗位匹配分、证据解释、风险缺口与可执行的申请建议。</p>
+    <div className="home-watermark">Eviden</div>
+    <div className="product-hero refined-hero">
+      <div className="product-copy refined-copy">
+        <div className="product-eyebrow">AI Application Strategy Workspace</div>
+        <h1>把简历和 JD 放在一起，判断这次申请是否值得推进。</h1>
+        <p>Eviden 不是首页直接展示“最新结果”，而是一个求职匹配分析工作台：每次分析都基于用户选择的简历版本和目标 JD，生成对应的证据链报告。</p>
+        <div className="home-logic" aria-label="产品逻辑说明">
+          <div><span>输入</span><b>选择一份简历</b><p>例如：AI 产品方向简历</p></div>
+          <div><span>对照</span><b>粘贴一个目标 JD</b><p>例如：AI 产品经理实习生</p></div>
+          <div><span>输出</span><b>生成本次匹配报告</b><p>分数、证据、缺口、行动建议</p></div>
+        </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>开始一次匹配分析 <ArrowRight size={18}/></button>
-          <button className="secondary" onClick={onStart}>查看样例结果</button>
-        </div>
-        <div className="logic-strip" aria-label="产品分析流程">
-          <div><span>01</span><b>上传简历</b></div>
-          <div><span>02</span><b>粘贴目标 JD</b></div>
-          <div><span>03</span><b>生成匹配报告</b></div>
+          <button className="secondary" onClick={onStart}>查看样例报告</button>
         </div>
       </div>
 
-      <div className="product-mock" aria-label="Eviden 产品界面预览">
-        <div className="mock-window-bar"><span></span><span></span><span></span><b>Eviden Match Report</b></div>
-        <div className="mock-context-row">
-          <div><label>简历</label><strong>胥哲_AI产品方向简历.pdf</strong></div>
+      <div className="product-mock refined-mock" aria-label="Eviden 样例报告预览">
+        <div className="mock-window-bar"><span></span><span></span><span></span><b>样例报告预览 · 非历史结果</b></div>
+        <div className="match-pair">
+          <div><label>简历版本</label><strong>胥哲 · AI 产品方向简历</strong></div>
           <div><label>目标 JD</label><strong>AI 产品经理实习生</strong></div>
         </div>
-        <div className="mock-report-grid">
-          <div className="mock-score-card">
-            <label>当前简历 × 当前 JD</label>
-            <strong>78</strong>
-            <span>目标岗位匹配分</span>
-          </div>
-          <div className="mock-insight-card">
-            <label>推荐动作</label>
-            <strong>准备后投递</strong>
-            <p>优势来自 AI 产品理解与商业化运营经验；投递前需补强数据分析和用户研究证据。</p>
-          </div>
+        <div className="report-preview">
+          <div className="preview-score"><label>当前简历 × 当前 JD</label><strong>78</strong><span>目标岗位匹配分</span></div>
+          <div className="preview-summary"><label>申请建议</label><b>准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达。</p></div>
         </div>
-        <div className="mock-evidence-list">
-          <div><span>强匹配</span><b>AI Agent / Prompt / 工作流迭代</b></div>
-          <div><span>中匹配</span><b>Dashboard 排查 / 指标归因</b></div>
-          <div><span>待补强</span><b>SQL、用户研究、结果量化</b></div>
+        <div className="preview-table">
+          <div><span>匹配证据</span><b>AI Agent / Prompt / 工作流迭代</b></div>
+          <div><span>需要补强</span><b>SQL、用户研究、结果量化</b></div>
+          <div><span>下一步</span><b>改写简历主线，并准备两个追问案例</b></div>
         </div>
       </div>
     </div>
