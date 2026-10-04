@@ -106,9 +106,14 @@ function Landing({ onStart }) {
 
     <div className="hero-grid">
       <div className="hero-copy">
-        <div className="issue-tag"><span>ISSUE 01</span><i />Evidence-based Application Strategy</div>
-        <h1><span>基于证据评估岗位匹配，</span><span>生成可执行申请策略。</span></h1>
-        <p>Eviden 将 JD、简历与目标岗位拆解为可验证的证据链，明确匹配优势、风险缺口、简历表达与投递前准备动作。</p>
+        <div className="issue-tag"><span>ISSUE 01</span><i />JD × Resume Match Report</div>
+        <h1><span>把一份简历，</span><span>对准一个目标岗位。</span></h1>
+        <p>Eviden 用同一套证据链解释「这份简历」与「这份 JD」的匹配关系，输出匹配分、优势证据、风险缺口与下一步申请策略。</p>
+        <div className="match-context" aria-label="当前样例分析对象">
+          <div><span>简历版本</span><b>胥哲 · AI 产品方向简历</b></div>
+          <div><span>目标 JD</span><b>AI 产品经理实习生</b></div>
+          <div><span>分析口径</span><b>当前简历 × 当前 JD</b></div>
+        </div>
         <div className="hero-actions">
           <button className="primary" onClick={onStart}>分析一个岗位 <ArrowRight size={18}/></button>
           <button className="secondary" onClick={onStart}>查看样例报告</button>
@@ -116,7 +121,7 @@ function Landing({ onStart }) {
         <div className="hero-stats">
           <div><b>78</b><span>目标岗位匹配分</span></div>
           <div><b>04</b><span>核心匹配证据</span></div>
-          <div><b>2h</b><span>预计准备成本</span></div>
+          <div><b>02H</b><span>预计准备成本</span></div>
         </div>
       </div>
 
@@ -124,8 +129,8 @@ function Landing({ onStart }) {
         <div className="cover-top"><span>CAREER EVIDENCE MAP</span><span>2026</span></div>
         <div className="cover-title">FIT<br/>REPORT</div>
         <div className="cover-grid">
-          <div className="score-stamp"><span>目标岗位匹配分</span><b>78</b></div>
-          <div className="cover-note"><b>AI 产品经理 · 准备后投递</b><p>优势集中在 AI 产品理解与商业化运营；需补强数据分析和用户研究证据。</p></div>
+          <div className="score-stamp"><span>JD×简历</span><b>78</b><em>匹配分</em></div>
+          <div className="cover-note"><b>样例报告 · AI 产品经理实习生</b><p>基于「胥哲 · AI 产品方向简历」与当前 JD 计算。</p></div>
         </div>
         <div className="tearline" />
         <div className="cover-list">
