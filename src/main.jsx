@@ -232,7 +232,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
         <h1><span>从 JD 到申请策略，</span><span>一次生成</span></h1>
         <p>输入简历和目标 JD，生成匹配评分、证据地图、改写建议与面试准备方向</p>
         <div className="home-logic" aria-label="产品逻辑说明">
-          <div><span>输入</span><b>导入当前简历</b><p>页面会显示本次使用的简历文件</p></div>
+          <div><span>输入</span><b>导入当前简历</b><p>支持 PDF / DOCX，扫描版 PDF 会尝试 AI OCR</p></div>
           <div><span>解析</span><b>粘贴目标 JD</b><p>系统从 JD 中识别岗位要求</p></div>
           <div><span>输出</span><b>生成申请策略</b><p>匹配分、证据、缺口、改写建议</p></div>
         </div>
