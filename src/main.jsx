@@ -476,13 +476,11 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id].slice(-4));
   const selectedRecords = records.filter(item => selected.includes(item.id));
-  const requestDelete = id => {
-    if (confirmDeleteId === id) {
-      onDelete(id);
-      setConfirmDeleteId('');
-      return;
-    }
-    setConfirmDeleteId(id);
+  const pendingDeleteRecord = records.find(item => item.id === confirmDeleteId);
+  const confirmDelete = () => {
+    if (!confirmDeleteId) return;
+    onDelete(confirmDeleteId);
+    setConfirmDeleteId('');
   };
 
   return <section className="workspace history-page">
@@ -496,8 +494,16 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
         <p>{record.result.summary}</p>
         <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}{record.businessUnit && <span>{record.businessUnit}</span>}</div>
         <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
-        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className={`secondary danger ${confirmDeleteId === record.id ? 'confirming' : ''}`} onClick={() => requestDelete(record.id)}>{confirmDeleteId === record.id ? '确认删除' : '删除'}</button>{confirmDeleteId === record.id && <button className="secondary" onClick={() => setConfirmDeleteId('')}>取消</button>}</div>
+        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className="secondary danger" onClick={() => setConfirmDeleteId(record.id)}>删除</button></div>
       </article>)}
+    </div>}
+    {pendingDeleteRecord && <div className="modal-backdrop" role="presentation" onClick={() => setConfirmDeleteId('')}>
+      <div className="confirm-modal editorial-card" role="dialog" aria-modal="true" aria-labelledby="delete-report-title" onClick={event => event.stopPropagation()}>
+        <small>DELETE REPORT</small>
+        <h3 id="delete-report-title">确认删除这份历史报告？</h3>
+        <p>删除后将无法在当前浏览器恢复。报告：{pendingDeleteRecord.target || '未命名岗位'}</p>
+        <div className="modal-actions"><button className="secondary" onClick={() => setConfirmDeleteId('')}>取消</button><button className="primary danger-solid" onClick={confirmDelete}>确认删除</button></div>
+      </div>
     </div>}
   </section>;
 }

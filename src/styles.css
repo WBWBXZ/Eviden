@@ -35,3 +35,6 @@
 
 /* Delete confirmation */
 .history-actions .danger.confirming{background:#151515;color:#fff;box-shadow:3px 3px 0 #8a2d1c}
+
+/* Modal delete confirmation */
+.modal-backdrop{position:fixed;inset:0;background:rgba(21,21,21,.38);display:flex;align-items:center;justify-content:center;padding:24px;z-index:30}.confirm-modal{width:min(440px,100%);background:#f4f1ea;padding:26px;border:2px solid #151515;box-shadow:12px 12px 0 rgba(21,21,21,.22)}.confirm-modal small{font-size:11px;font-weight:900;letter-spacing:1px;color:#777268}.confirm-modal h3{margin:10px 0 10px;font-size:26px;line-height:32px}.confirm-modal p{margin:0;color:#56534c;line-height:24px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.danger-solid{background:#151515!important;color:#fff!important;border-color:#151515!important}.danger-solid:hover{box-shadow:4px 4px 0 #8a2d1c}@media(max-width:620px){.modal-actions{flex-direction:column}.modal-actions button{width:100%}}
