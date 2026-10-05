@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import io
@@ -36,6 +37,7 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
+DEFAULT_OCR_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA_DIR, "eviden.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -451,7 +453,7 @@ def score_extracted_text(text: str) -> float:
     return useful_chars + line_bonus + contact_bonus + section_bonus - replacement_penalty * 8
 
 
-def parse_pdf_resume(content: bytes) -> str:
+def best_pdf_text(content: bytes) -> str:
     candidates = []
     for parser in (parse_pdf_resume_with_pdfplumber, parse_pdf_resume_with_fitz, parse_pdf_resume_with_pypdf):
         try:
@@ -460,10 +462,95 @@ def parse_pdf_resume(content: bytes) -> str:
                 candidates.append(parsed)
         except Exception as error:
             LOGGER.info("PDF parser %s failed: %s", parser.__name__, error)
-    text = max(candidates, key=score_extracted_text) if candidates else ""
+    return max(candidates, key=score_extracted_text) if candidates else ""
+
+
+def parse_pdf_resume(content: bytes) -> str:
+    text = best_pdf_text(content)
     if len(text) < 80:
         raise HTTPException(status_code=422, detail="PDF 可提取文本过少，可能是扫描版或图片版简历；请换 DOCX 或可复制文本的 PDF。")
     return text
+
+
+def render_pdf_pages_for_ocr(content: bytes, max_pages: int = 4) -> List[bytes]:
+    document = fitz.open(stream=content, filetype="pdf")
+    images = []
+    try:
+        for page_index in range(min(len(document), max_pages)):
+            page = document[page_index]
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            images.append(pixmap.tobytes("png"))
+    finally:
+        document.close()
+    return images
+
+
+async def request_ocr_for_image(image: bytes, page_number: int) -> str:
+    api_key = get_secret("SILICONFLOW_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OCR 服务未配置，请稍后再试。")
+    image_base64 = base64.b64encode(image).decode("utf-8")
+    payload = {
+        "model": ocr_model_name(),
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,{0}".format(image_base64)},
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "请从这张简历 PDF 第 {0} 页图片中提取全部可读文字。"
+                            "按从上到下、从左到右的阅读顺序输出，保留姓名、联系方式、教育、经历、项目、技能、时间、公司、职位、项目符号和表格信息。"
+                            "不要总结，不要翻译，不要添加解释；如果没有可读文字，只输出空字符串。"
+                        ).format(page_number),
+                    },
+                ],
+            }
+        ],
+        "temperature": 0,
+        "max_tokens": 2400,
+    }
+    headers = {"Authorization": "Bearer {0}".format(api_key), "Content-Type": "application/json"}
+    timeout = httpx.Timeout(90.0, connect=15.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(
+                "{0}/chat/completions".format(api_base_url().rstrip("/")),
+                headers=headers,
+                json=payload,
+            )
+            if response.status_code >= 400:
+                LOGGER.warning("OCR request failed: %s %s", response.status_code, response.text[:300])
+                raise HTTPException(status_code=502, detail="扫描版 PDF OCR 失败，请稍后重试。")
+            data = response.json()
+    except HTTPException:
+        raise
+    except Exception as error:
+        LOGGER.warning("OCR request error: %s", error)
+        raise HTTPException(status_code=502, detail="扫描版 PDF OCR 失败，请稍后重试。") from error
+    return clean_resume_text(str(data.get("choices", [{}])[0].get("message", {}).get("content", "")))
+
+
+async def parse_pdf_resume_with_ocr_fallback(content: bytes) -> str:
+    text = best_pdf_text(content)
+    if len(text) >= 80 and score_extracted_text(text) >= 180:
+        return text
+    images = render_pdf_pages_for_ocr(content)
+    if not images:
+        raise HTTPException(status_code=422, detail="PDF 解析失败，请换一个文件重试。")
+    page_texts = []
+    for index, image in enumerate(images, start=1):
+        page_text = await request_ocr_for_image(image, index)
+        if page_text:
+            page_texts.append(page_text)
+    ocr_text = clean_resume_text("\n\n".join(page_texts))
+    if len(ocr_text) < 80:
+        raise HTTPException(status_code=422, detail="OCR 识别到的简历内容太少，请确认文件清晰或换 DOCX 重试。")
+    return ocr_text
 
 
 def parse_docx_resume(content: bytes) -> str:
@@ -532,6 +619,10 @@ def api_base_url() -> str:
 
 def model_name() -> str:
     return (os.environ.get("SILICONFLOW_MODEL", "").strip() or read_local_secret("SILICONFLOW_MODEL") or read_config_module("SILICONFLOW_MODEL") or DEFAULT_MODEL)
+
+
+def ocr_model_name() -> str:
+    return (os.environ.get("SILICONFLOW_OCR_MODEL", "").strip() or read_local_secret("SILICONFLOW_OCR_MODEL") or read_config_module("SILICONFLOW_OCR_MODEL") or DEFAULT_OCR_MODEL)
 
 
 def build_system_prompt() -> str:
@@ -918,7 +1009,10 @@ async def parse_resume_handler(file: UploadFile = File(...)):
     if len(content) > 8 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件过大，请上传 8MB 以内的简历。")
     try:
-        text = parse_resume_file(filename, content)
+        if filename.lower().endswith(".pdf"):
+            text = await parse_pdf_resume_with_ocr_fallback(content)
+        else:
+            text = parse_resume_file(filename, content)
     except HTTPException:
         raise
     except Exception as error:

@@ -267,7 +267,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [resumePreview, setResumePreview] = useState('');
   const [parseStatus, setParseStatus] = useState('idle');
-  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX，建议上传可复制文本的简历');
+  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX；扫描版 PDF 会自动尝试 AI OCR');
   const [jd, setJd] = useState('');
   const [target, setTarget] = useState('');
   const [company, setCompany] = useState('');
@@ -334,7 +334,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setResumePreview('');
     setResumeFile(file);
     setParseStatus('parsing');
-    setParseMessage('正在解析简历文件…');
+    setParseMessage('正在解析简历文件，扫描版 PDF 可能需要更久…');
     try {
       const parsed = await requestResumeParse(file);
       setResume(parsed.text || '');
@@ -425,7 +425,7 @@ function RewritePage({ onBack }) {
     setResumePreview('');
     setResumeFile(file);
     setParseStatus('parsing');
-    setParseMessage('正在解析简历文件…');
+    setParseMessage('正在解析简历文件，扫描版 PDF 可能需要更久…');
     try {
       const parsed = await requestResumeParse(file);
       setResume(parsed.text || '');
