@@ -9,11 +9,18 @@ import secrets
 import sqlite3
 import time
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 import fitz
 import pdfplumber
 import uvicorn
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ImportError:  # pragma: no cover - SQLite fallback still works without Postgres dependency.
+    psycopg2 = None
+    RealDictCursor = None
 from docx import Document
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -31,6 +38,11 @@ DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA_DIR, "eviden.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
+    db_password = quote(os.getenv("SUPABASE_DB_PASSWORD", ""), safe="")
+    db_host = os.getenv("SUPABASE_DB_HOST", "db.fjuiloufsrvewjlvijys.supabase.co")
+    DATABASE_URL = f"postgresql://postgres:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
@@ -196,14 +208,87 @@ class ResumeParseResponse(BaseModel):
     preview: str
 
 
-def db_connection() -> sqlite3.Connection:
+def use_postgres() -> bool:
+    return bool(DATABASE_URL)
+
+
+def db_connection():
+    if use_postgres():
+        if psycopg2 is None:
+            raise RuntimeError("Postgres dependency is not installed")
+        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
+def sql_params(sql: str) -> str:
+    return sql.replace("?", "%s") if use_postgres() else sql
+
+
+def fetch_one(sql: str, params: tuple = ()):  # type: ignore[no-untyped-def]
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute(sql_params(sql), params)
+                return cursor.fetchone()
+        return connection.execute(sql, params).fetchone()
+
+
+def fetch_all(sql: str, params: tuple = ()):  # type: ignore[no-untyped-def]
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute(sql_params(sql), params)
+                return cursor.fetchall()
+        return connection.execute(sql, params).fetchall()
+
+
+def execute_sql(sql: str, params: tuple = ()) -> None:
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute(sql_params(sql), params)
+            return
+        connection.execute(sql, params)
+
+
 def init_db() -> None:
+    if use_postgres():
+        statements = [
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                phone TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS reports (
+                id TEXT NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                record_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(id, user_id)
+            )
+            """,
+        ]
+        with db_connection() as connection:
+            with connection.cursor() as cursor:
+                for statement in statements:
+                    cursor.execute(statement)
+        return
+
     with db_connection() as connection:
         connection.execute(
             """
@@ -240,6 +325,29 @@ def init_db() -> None:
         )
 
 
+def is_integrity_error(error: Exception) -> bool:
+    if isinstance(error, sqlite3.IntegrityError):
+        return True
+    return bool(psycopg2 is not None and isinstance(error, psycopg2.IntegrityError))
+
+
+def create_user(phone: str, password_hash: str, created_at: int) -> int:
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO users(phone, password_hash, created_at) VALUES (%s, %s, %s) RETURNING id",
+                    (phone, password_hash, created_at),
+                )
+                row = cursor.fetchone()
+                return int(row["id"])
+        cursor = connection.execute(
+            "INSERT INTO users(phone, password_hash, created_at) VALUES (?, ?, ?)",
+            (phone, password_hash, created_at),
+        )
+        return int(cursor.lastrowid)
+
+
 def hash_password(password: str, salt: Optional[str] = None) -> str:
     salt = salt or secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180000)
@@ -257,15 +365,14 @@ def verify_password(password: str, stored_hash: str) -> bool:
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     now = int(time.time())
-    with db_connection() as connection:
-        connection.execute(
-            "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
-            (token, user_id, now + TOKEN_TTL_SECONDS, now),
-        )
+    execute_sql(
+        "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+        (token, user_id, now + TOKEN_TTL_SECONDS, now),
+    )
     return token
 
 
-def user_from_row(row: sqlite3.Row) -> UserInfo:
+def user_from_row(row) -> UserInfo:  # type: ignore[no-untyped-def]
     return UserInfo(id=int(row["id"]), phone=str(row["phone"]), created_at=int(row["created_at"]))
 
 
@@ -274,16 +381,15 @@ def current_user(authorization: Optional[str] = Header(default=None)) -> UserInf
         raise HTTPException(status_code=401, detail="请先登录")
     token = authorization.split(" ", 1)[1].strip()
     now = int(time.time())
-    with db_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT users.id, users.phone, users.created_at
-            FROM sessions
-            JOIN users ON users.id = sessions.user_id
-            WHERE sessions.token = ? AND sessions.expires_at > ?
-            """,
-            (token, now),
-        ).fetchone()
+    row = fetch_one(
+        """
+        SELECT users.id, users.phone, users.created_at
+        FROM sessions
+        JOIN users ON users.id = sessions.user_id
+        WHERE sessions.token = ? AND sessions.expires_at > ?
+        """,
+        (token, now),
+    )
     if row is None:
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return user_from_row(row)
@@ -731,14 +837,11 @@ async def register_handler(request: AuthRequest):
     now = int(time.time())
     password_hash = hash_password(request.password)
     try:
-        with db_connection() as connection:
-            cursor = connection.execute(
-                "INSERT INTO users(phone, password_hash, created_at) VALUES (?, ?, ?)",
-                (request.phone, password_hash, now),
-            )
-            user_id = int(cursor.lastrowid)
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="这个手机号已经注册，请直接登录")
+        user_id = create_user(request.phone, password_hash, now)
+    except Exception as error:
+        if is_integrity_error(error):
+            raise HTTPException(status_code=409, detail="这个手机号已经注册，请直接登录")
+        raise
     token = create_session(user_id)
     return AuthResponse(token=token, user=UserInfo(id=user_id, phone=request.phone, created_at=now))
 
@@ -746,8 +849,7 @@ async def register_handler(request: AuthRequest):
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login_handler(request: AuthRequest):
     init_db()
-    with db_connection() as connection:
-        row = connection.execute("SELECT * FROM users WHERE phone = ?", (request.phone,)).fetchone()
+    row = fetch_one("SELECT * FROM users WHERE phone = ?", (request.phone,))
     if row is None or not verify_password(request.password, str(row["password_hash"])):
         raise HTTPException(status_code=401, detail="手机号或密码不正确")
     token = create_session(int(row["id"]))
@@ -761,11 +863,10 @@ async def me_handler(user: UserInfo = Depends(current_user)):
 
 @app.get("/api/reports", response_model=CloudReportsResponse)
 async def list_reports_handler(user: UserInfo = Depends(current_user)):
-    with db_connection() as connection:
-        rows = connection.execute(
-            "SELECT id, record_json, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC",
-            (user.id,),
-        ).fetchall()
+    rows = fetch_all(
+        "SELECT id, record_json, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC",
+        (user.id,),
+    )
     reports = [
         CloudReport(id=str(row["id"]), record=json.loads(str(row["record_json"])), updated_at=int(row["updated_at"]))
         for row in rows
@@ -777,21 +878,19 @@ async def list_reports_handler(user: UserInfo = Depends(current_user)):
 async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
     now = int(time.time())
     record_json = json.dumps(request.record, ensure_ascii=False)
-    with db_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO reports(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)
-            ON CONFLICT(id, user_id) DO UPDATE SET record_json = excluded.record_json, updated_at = excluded.updated_at
-            """,
-            (request.id, user.id, record_json, now),
-        )
+    execute_sql(
+        """
+        INSERT INTO reports(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(id, user_id) DO UPDATE SET record_json = excluded.record_json, updated_at = excluded.updated_at
+        """,
+        (request.id, user.id, record_json, now),
+    )
     return CloudReport(id=request.id, record=request.record, updated_at=now)
 
 
 @app.delete("/api/reports/{report_id}")
 async def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
-    with db_connection() as connection:
-        connection.execute("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
+    execute_sql("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
     return {"ok": True}
 
 
