@@ -23,3 +23,9 @@
 
 /* Target context fields */
 .context-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.context-fields input:first-child{grid-column:1/-1}.jd-card textarea{height:306px}.jd-card .card-title span{max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:980px){.context-fields{grid-template-columns:1fr}.context-fields input:first-child{grid-column:auto}.jd-card textarea{height:340px}.jd-card .card-title span{max-width:180px}}
+
+/* Compact optional context fields */
+.context-fields{grid-template-columns:1fr!important;gap:8px!important}.context-fields input{min-width:0;font-size:14px}.jd-card textarea{height:292px}.jd-card .card-title span{max-width:360px;min-width:0;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#777268}@media(max-width:980px){.jd-card .card-title span{max-width:160px}.jd-card textarea{height:320px}}
+
+/* Resume optimizer */
+.rewrite-output{margin-top:22px;padding:22px}.rewrite-output .panel-head{margin-bottom:14px}.rewrite-output .panel-head b{font-size:24px}.rewrite-output .panel-head p{margin:6px 0 0;color:#56534c}.rewrite-list{display:grid;gap:12px}.rewrite-output .rewrite-row{border:1.5px solid #151515;background:#fffdf8}.rewrite-output .rewrite-row small{display:block;margin-top:8px;color:#777268;line-height:20px}.rewrite-extra{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.rewrite-extra>div{border:1.5px solid #151515;background:#ebe4d6;padding:14px}.rewrite-extra b{display:block;margin-bottom:8px}.rewrite-extra p{margin:0;color:#3f3c35;line-height:22px}@media(max-width:980px){.rewrite-extra{grid-template-columns:1fr}}

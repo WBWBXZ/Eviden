@@ -133,15 +133,36 @@ async function requestResumeParse(file) {
   return response.json();
 }
 
+async function requestResumeRewrite({ resume, target, jd, company, businessUnit }) {
+  const response = await fetch(`${API_BASE_URL}/api/rewrite-resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resume, target, jd, company, business_unit: businessUnit }),
+  });
+
+  if (!response.ok) {
+    let message = '简历优化失败，请稍后重试。';
+    try {
+      const data = await response.json();
+      message = typeof data.detail === 'string' ? data.detail : message;
+    } catch {
+      // Keep the generic message when the backend does not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
 function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
 
-function Landing({ onStart, onOpenHistory, historyCount }) {
+function Landing({ onStart, onOpenHistory, onOpenRewrite, historyCount }) {
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
+      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenRewrite}>简历优化</button><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
     </nav>
 
     <div className="product-hero refined-hero">
@@ -156,6 +177,7 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
         </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>生成申请策略 <ArrowRight size={18}/></button>
+          <button className="secondary" onClick={onOpenRewrite}>优化简历表达</button>
           <button className="secondary" onClick={onOpenHistory}>查看历史报告</button>
         </div>
       </div>
@@ -185,7 +207,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [resumePreview, setResumePreview] = useState('');
   const [parseStatus, setParseStatus] = useState('idle');
-  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX 简历，上传后会先解析成可核验文本。');
+  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX，建议上传可复制文本的简历。');
   const [jd, setJd] = useState(sampleJD);
   const [target, setTarget] = useState('AI 产品经理');
   const [company, setCompany] = useState('');
@@ -243,7 +265,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setResumeFile(null);
     setResumePreview('');
     setParseStatus('idle');
-    setParseMessage('支持 PDF / DOCX 简历，上传后会先解析成可核验文本。');
+    setParseMessage('支持 PDF / DOCX，建议上传可复制文本的简历。');
   };
 
   const canSubmit = !loading && parseStatus === 'success' && resume.trim().length >= 80 && jd.trim().length >= 50;
@@ -252,7 +274,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading}>历史报告</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>上传简历文件，并补充目标场景。</h2><p>填写公司与事业部后，Eviden 会用更明确的业务语境解读 JD，再把 PDF / DOCX 简历证据与岗位要求逐项对照。</p></div>
+      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位。</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准。</p></div>
       <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
@@ -276,14 +298,80 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
           <p>{resumePreview}</p>
         </div>}
       </div>
-      <div className="input-card editorial-card jd-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{[company, businessUnit, target].filter(Boolean).join(' · ') || target}</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="岗位名称，例如 AI 产品经理实习生" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司，例如 快手 / 阿里 / 字节" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="事业部 / 方向，例如 主站 / 商业化 / 国际化" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
+      <div className="input-card editorial-card jd-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{[company, businessUnit, target].filter(Boolean).join(' · ') || target}</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="岗位名称" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司（选填）" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="事业部 / 方向（选填）" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
     </div>
 
     <div className="hint-row">
-      <div><UploadCloud size={18}/><span>简历支持 PDF / DOCX 上传解析</span></div>
+      <div><UploadCloud size={18}/><span>支持文本型 PDF / DOCX</span></div>
       <div><Route size={18}/><span>公司 / 事业部会进入历史记录与匹配语境</span></div>
       <div><BadgeCheck size={18}/><span>只基于证据判断，不编造经历</span></div>
     </div>
+  </section>;
+}
+
+function RewritePage({ onBack }) {
+  const [resume, setResume] = useState('');
+  const [resumeFile, setResumeFile] = useState(null);
+  const [resumePreview, setResumePreview] = useState('');
+  const [parseStatus, setParseStatus] = useState('idle');
+  const [parseMessage, setParseMessage] = useState('上传 PDF / DOCX 简历，生成可复制的改写建议。');
+  const [target, setTarget] = useState('AI 产品经理');
+  const [company, setCompany] = useState('');
+  const [businessUnit, setBusinessUnit] = useState('');
+  const [jd, setJd] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [rewrite, setRewrite] = useState(null);
+
+  const handleResumeUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setRewrite(null);
+    setResume('');
+    setResumePreview('');
+    setResumeFile(file);
+    setParseStatus('parsing');
+    setParseMessage('正在解析简历文件…');
+    try {
+      const parsed = await requestResumeParse(file);
+      setResume(parsed.text || '');
+      setResumePreview(parsed.preview || '');
+      setParseStatus('success');
+      setParseMessage(`已解析 ${parsed.char_count || 0} 个字符，可以开始优化。`);
+    } catch (err) {
+      setParseStatus('error');
+      setParseMessage(err.message || '简历解析失败，请换一个文件重试。');
+      setResumeFile(null);
+      event.target.value = '';
+    }
+  };
+
+  const submit = async () => {
+    if (loading || parseStatus !== 'success') return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit });
+      setRewrite(result);
+    } catch (err) {
+      setError(err.message || '简历优化失败，请稍后重试。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canSubmit = !loading && parseStatus === 'success' && resume.trim().length >= 80 && target.trim().length >= 2;
+
+  return <section className="workspace input-page rewrite-page">
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回上一步</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '优化中…' : '生成改写建议'}</button></div></nav>
+    <div className="page-head"><div><small>RESUME OPTIMIZER</small><h2>把简历改成可投递版本。</h2><p>上传简历，填写目标岗位；JD 可选。Eviden 会基于原文证据改写表达，不新增未经证实的信息。</p></div><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '正在优化简历…' : '生成简历优化方案'} <BrainCircuit size={18}/></button></div>
+    {error && <div className="error-banner editorial-card"><b>优化没有成功</b><span>{error}</span></div>}
+    <div className="input-grid">
+      <div className="input-card editorial-card upload-card"><div className="card-title"><FileText size={18}/><b>简历文件</b><span>{parseStatus === 'success' ? '已解析' : 'PDF / DOCX'}</span></div><label className={`resume-upload-zone ${parseStatus}`}><input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || parseStatus === 'parsing'} /><UploadCloud size={34}/><b>{resumeFile ? resumeFile.name : '上传一份简历'}</b><p>{parseMessage}</p></label>{parseStatus === 'success' && <div className="resume-preview"><div><label>解析预览</label></div><p>{resumePreview}</p></div>}</div>
+      <div className="input-card editorial-card jd-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>优化目标</b><span>{[company, businessUnit, target].filter(Boolean).join(' · ') || target}</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="岗位名称" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司（选填）" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="事业部 / 方向（选填）" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴 JD（选填，但粘贴后会更贴合岗位）" /></div>
+    </div>
+    {rewrite && <div className="rewrite-output editorial-card"><div className="panel-head"><div><b>{rewrite.positioning}</b><p>{rewrite.strategy}</p></div><span>{rewrite.bullets?.length || 0} 条建议</span></div><div className="rewrite-list">{rewrite.bullets.map((item, index) => <div className="rewrite-row" key={index}><div><label>{item.section} · 原文</label><p>{item.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{item.after}</p><small>{item.evidence_boundary}</small></div></div>)}</div><div className="rewrite-extra"><div><b>HR 开场白</b><p>{rewrite.hr_intro}</p></div><div><b>还需补充</b><p>{(rewrite.gaps || []).join(' / ') || '暂无'}</p></div></div></div>}
   </section>;
 }
 
@@ -433,8 +521,9 @@ function App() {
 
   const backFromCurrent = () => setStep(previousStep || 'landing');
 
-  if (step === 'landing') return <Landing onStart={() => go('input')} onOpenHistory={() => go('history')} historyCount={history.length} />;
+  if (step === 'landing') return <Landing onStart={() => go('input')} onOpenHistory={() => go('history')} onOpenRewrite={() => go('rewrite')} historyCount={history.length} />;
   if (step === 'input') return <InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => go('history')} />;
+  if (step === 'rewrite') return <RewritePage onBack={backFromCurrent} />;
   if (step === 'history') return <HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />;
   if (step === 'compare') return <ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />;
   return <ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => go('history')} onCompare={() => openCompare(history)} />;
