@@ -162,7 +162,7 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始使用</button></div>
+      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
     </nav>
 
     <div className="product-hero refined-hero">
@@ -176,7 +176,7 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
           <div><span>输出</span><b>生成申请策略</b><p>匹配分、证据、缺口、改写建议</p></div>
         </div>
         <div className="hero-actions product-actions">
-          <button className="primary" onClick={onStart}>开始使用 <ArrowRight size={18}/></button>
+          <button className="primary" onClick={onStart}>开始分析 <ArrowRight size={18}/></button>
           <button className="secondary" onClick={onOpenHistory}>查看历史报告</button>
         </div>
       </div>
@@ -304,8 +304,8 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading || rewriteLoading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading || rewriteLoading}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位。</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准。</p></div>
-      <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'} <BrainCircuit size={18}/></button></div>
+      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准。</p></div>
+      <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'}</button></div>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
       <div className="loading-orbit"><span></span><i></i><i></i><i></i></div>
@@ -473,8 +473,17 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
 
 function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
   const [selected, setSelected] = useState(records.slice(0, 3).map(item => item.id));
+  const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id].slice(-4));
   const selectedRecords = records.filter(item => selected.includes(item.id));
+  const requestDelete = id => {
+    if (confirmDeleteId === id) {
+      onDelete(id);
+      setConfirmDeleteId('');
+      return;
+    }
+    setConfirmDeleteId(id);
+  };
 
   return <section className="workspace history-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比已选 {selectedRecords.length}</button></div></nav>
@@ -487,7 +496,7 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
         <p>{record.result.summary}</p>
         <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}{record.businessUnit && <span>{record.businessUnit}</span>}</div>
         <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
-        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div>
+        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className={`secondary danger ${confirmDeleteId === record.id ? 'confirming' : ''}`} onClick={() => requestDelete(record.id)}>{confirmDeleteId === record.id ? '确认删除' : '删除'}</button>{confirmDeleteId === record.id && <button className="secondary" onClick={() => setConfirmDeleteId('')}>取消</button>}</div>
       </article>)}
     </div>}
   </section>;

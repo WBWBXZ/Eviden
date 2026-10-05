@@ -32,3 +32,6 @@
 
 /* Unified input page polish */
 .page-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.input-grid{align-items:stretch}.input-card{height:100%}.upload-card{min-height:560px}.upload-card .resume-upload-zone{flex:1;min-height:360px}.upload-card .resume-preview{flex:0 0 auto}.jd-card{min-height:560px}.jd-card textarea{flex:1;min-height:360px}.nav-actions{gap:8px}.nav-actions .secondary{white-space:nowrap}.context-fields input::placeholder,.jd-card textarea::placeholder{color:#8c867b}@media(max-width:980px){.page-actions{width:100%}.page-actions button{flex:1}.upload-card,.jd-card{min-height:auto}.upload-card .resume-upload-zone{min-height:280px}.jd-card textarea{min-height:300px}}
+
+/* Delete confirmation */
+.history-actions .danger.confirming{background:#151515;color:#fff;box-shadow:3px 3px 0 #8a2d1c}
