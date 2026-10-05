@@ -47,12 +47,12 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://postgres:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 DIMENSION_WEIGHTS = {
-    "岗位硬要求匹配": 25,
-    "项目证据可信度": 25,
-    "业务场景贴合度": 15,
-    "结果和影响力": 15,
-    "个人贡献清晰度": 10,
-    "简历表达命中度": 10,
+    "职责贴合度": 25,
+    "能力命中度": 20,
+    "证据支撑度": 20,
+    "场景相关度": 15,
+    "结果相关性": 10,
+    "表达命中度": 10,
 }
 
 
@@ -648,12 +648,12 @@ def build_system_prompt() -> str:
 10. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
 
 通用评分标准：
-- 岗位硬要求匹配 25%：JD 的学历/年限/技能/语言/工具/行业等硬要求是否满足；硬门槛缺失要明显扣分。
-- 项目证据可信度 25%：简历是否有真实项目、职责动作、上下文和可核验成果支撑，而不是只写泛泛能力。
-- 业务场景贴合度 15%：过往业务、用户、行业、产品形态、商业模式是否贴近目标岗位。
-- 结果和影响力 15%：是否有指标、规模、效率提升、收入/转化/质量改善等结果；没有量化结果要扣分。
-- 个人贡献清晰度 10%：候选人是主导/owner/关键参与还是协助执行，贡献边界是否清楚。
-- 简历表达命中度 10%：简历表达是否对齐 JD 语言、关键词和岗位叙事，但不能用关键词堆砌替代证据。
+- 职责贴合度 25%：简历经历是否覆盖 JD 最核心的工作内容；不是看经历多不多，而是看是否做过这类岗位真正要做的事。
+- 能力命中度 20%：简历是否证明候选人具备 JD 要求的能力组合，如产品判断、数据分析、用户研究、AI/工具理解、跨团队推进等。
+- 证据支撑度 20%：简历中是否有项目、动作、角色、上下文和可核验材料支撑匹配判断；不能只靠自我评价或关键词。
+- 场景相关度 15%：过往业务、用户、行业、产品形态、商业模式是否接近目标岗位的工作场景。
+- 结果相关性 10%：过往结果是否对应目标岗位关心的指标或产出，如效率、转化、增长、收入、体验、质量等。
+- 表达命中度 10%：简历语言是否能让筛选者快速识别与 JD 的对应关系；表达可加分，但不能替代真实经历。
 
 置信度规则：
 - 高：JD 具体、简历解析完整、引用证据充分且可逐字核验。
@@ -667,12 +667,12 @@ JSON 必须严格包含：
   "confidence_label":"高/中/低",
   "confidence_reason":"为什么本次评分可信或不够可信",
   "dimensions": [
-    {"name":"岗位硬要求匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"项目证据可信度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"业务场景贴合度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"结果和影响力","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"个人贡献清晰度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"简历表达命中度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
+    {"name":"职责贴合度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"能力命中度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"证据支撑度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"场景相关度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"结果相关性","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"表达命中度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
   ],
   "summary":"申请建议的核心判断，2到3句",
   "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因"}],
