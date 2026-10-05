@@ -107,8 +107,7 @@ function Landing({ onStart }) {
     <div className="home-watermark">Eviden</div>
     <div className="product-hero refined-hero">
       <div className="product-copy refined-copy">
-        <div className="product-eyebrow">AI Application Strategy Workspace</div>
-        <h1>从 JD 到申请策略，一次生成。</h1>
+        <h1><span>从 JD 到申请策略，</span><span>一次生成。</span></h1>
         <p>输入简历和目标 JD，Eviden 会生成匹配评分、证据地图、简历改写建议与面试准备方向。</p>
         <div className="home-logic" aria-label="产品逻辑说明">
           <div><span>输入</span><b>导入当前简历</b><p>页面会显示本次使用的简历文件</p></div>
@@ -125,10 +124,10 @@ function Landing({ onStart }) {
         <div className="mock-window-bar"><span></span><span></span><span></span><b>Eviden</b></div>
         <div className="match-pair">
           <div><label>当前简历</label><strong>AI 产品方向简历.pdf</strong></div>
-          <div><label>目标 JD</label><strong>AI 产品经理实习生 JD</strong></div>
+          <div><label>目标岗位</label><strong>AI 产品经理实习生</strong></div>
         </div>
         <div className="report-preview">
-          <div className="preview-score"><label>当前简历 × 目标 JD</label><strong>78</strong><span>匹配评分</span></div>
+          <div className="preview-score"><label>当前简历 × 目标岗位</label><strong>78</strong><span>匹配评分</span></div>
           <div className="preview-summary"><label>申请建议</label><b>准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达。</p></div>
         </div>
         <div className="preview-table">
