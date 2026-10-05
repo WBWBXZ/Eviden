@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowRight,
@@ -39,6 +39,7 @@ const sampleJD = `AI 产品经理实习生
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const HISTORY_KEY = 'eviden.analysis.history.v1';
+const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
 
 function getStoredHistory() {
   try {
@@ -52,6 +53,34 @@ function getStoredHistory() {
 function persistHistory(records) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, 30)));
 }
+
+async function apiJson(path, { method = 'GET', body, token } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    let message = '请求失败，请稍后重试';
+    try {
+      const data = await response.json();
+      message = typeof data.detail === 'string' ? data.detail : message;
+    } catch {
+      // Keep default message.
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+const authLogin = (payload) => apiJson('/api/auth/login', { method: 'POST', body: payload });
+const authRegister = (payload) => apiJson('/api/auth/register', { method: 'POST', body: payload });
+const authMe = (token) => apiJson('/api/auth/me', { token });
+const fetchCloudReports = (token) => apiJson('/api/reports', { token });
+const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
+const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
 
 function shortText(text, length = 82) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
@@ -158,11 +187,44 @@ function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
 
-function Landing({ onStart, onOpenHistory, historyCount }) {
+function AuthModal({ onClose, onSuccess }) {
+  const [mode, setMode] = useState('login');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const payload = { phone, password };
+      const result = mode === 'login' ? await authLogin(payload) : await authRegister(payload);
+      onSuccess(result);
+    } catch (err) {
+      setError(err.message || '登录失败，请稍后重试');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="confirm-modal auth-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
+      <small>{mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}</small>
+      <h3>{mode === 'login' ? '登录 Eviden' : '创建账号'}</h3>
+      <p>手机号就是你的账号，用于同步历史报告</p>
+      <div className="auth-fields"><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="手机号" inputMode="numeric" /><input value={password} onChange={event => setPassword(event.target.value)} placeholder="密码（至少 6 位）" type="password" /></div>
+      {error && <div className="auth-error">{error}</div>}
+      <div className="modal-actions"><button className="secondary" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '注册新账号' : '已有账号登录'}</button><button className="primary" onClick={submit} disabled={loading || phone.replace(/\D/g, '').length < 6 || password.length < 6}>{loading ? '处理中…' : mode === 'login' ? '登录' : '注册并登录'}</button></div>
+    </div>
+  </div>;
+}
+
+function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout }) {
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
+      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button>{user ? <button className="account-pill" onClick={onLogout}>{user.phone} · 退出</button> : <button onClick={onAuth}>登录</button>}<button onClick={onStart}>开始分析</button></div>
     </nav>
 
     <div className="product-hero refined-hero">
@@ -525,23 +587,81 @@ function ComparePage({ records, onBack, onView }) {
   </section>;
 }
 
+function mergeHistory(localRecords, cloudReports) {
+  const byId = new Map();
+  localRecords.forEach(record => byId.set(record.id, record));
+  cloudReports.forEach(item => {
+    if (item.record?.id) byId.set(item.record.id, item.record);
+  });
+  return Array.from(byId.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 30);
+}
+
 function App() {
   const [step, setStep] = useState('landing');
   const [previousStep, setPreviousStep] = useState('landing');
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState(getStoredHistory);
   const [compareRecords, setCompareRecords] = useState([]);
+  const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
+  const [user, setUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const userInfo = await authMe(token);
+        const cloud = await fetchCloudReports(token);
+        if (cancelled) return;
+        setUser(userInfo);
+        const merged = mergeHistory(getStoredHistory(), cloud.reports || []);
+        setHistory(merged);
+        persistHistory(merged);
+      } catch (err) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        setToken('');
+        setUser(null);
+      }
+    };
+    restore();
+    return () => { cancelled = true; };
+  }, [token]);
 
   const go = next => {
     setPreviousStep(step);
     setStep(next);
   };
 
-  const saveAndShowResult = (analysisResult, input) => {
+  const handleAuthSuccess = async auth => {
+    localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
+    setToken(auth.token);
+    setUser(auth.user);
+    setShowAuth(false);
+    try {
+      const localRecords = getStoredHistory();
+      await Promise.all(localRecords.map(record => saveCloudReport(auth.token, record)));
+      const cloud = await fetchCloudReports(auth.token);
+      const merged = mergeHistory(localRecords, cloud.reports || []);
+      setHistory(merged);
+      persistHistory(merged);
+    } catch (err) {
+      console.warn('sync history failed', err);
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    setToken('');
+    setUser(null);
+  };
+
+  const saveAndShowResult = async (analysisResult, input) => {
     const record = makeHistoryRecord(analysisResult, input);
     const nextHistory = [record, ...history.filter(item => item.id !== record.id)].slice(0, 30);
     setHistory(nextHistory);
     persistHistory(nextHistory);
+    if (token) saveCloudReport(token, record).catch(err => console.warn('save cloud report failed', err));
     setResult(record.result);
     setPreviousStep('input');
     setStep('result');
@@ -551,6 +671,7 @@ function App() {
     const nextHistory = history.filter(item => item.id !== id);
     setHistory(nextHistory);
     persistHistory(nextHistory);
+    if (token) deleteCloudReport(token, id).catch(err => console.warn('delete cloud report failed', err));
   };
 
   const viewRecord = record => {
@@ -567,12 +688,13 @@ function App() {
   };
 
   const backFromCurrent = () => setStep(previousStep || 'landing');
+  const withAuth = page => <>{page}{showAuth && <AuthModal onClose={() => setShowAuth(false)} onSuccess={handleAuthSuccess} />}</>;
 
-  if (step === 'landing') return <Landing onStart={() => go('input')} onOpenHistory={() => go('history')} historyCount={history.length} />;
-  if (step === 'input') return <InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => go('history')} />;
-  if (step === 'history') return <HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />;
-  if (step === 'compare') return <ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />;
-  return <ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => go('history')} onCompare={() => openCompare(history)} />;
+  if (step === 'landing') return withAuth(<Landing onStart={() => go('input')} onOpenHistory={() => go('history')} historyCount={history.length} user={user} onAuth={() => setShowAuth(true)} onLogout={logout} />);
+  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => go('history')} />);
+  if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />);
+  if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
+  return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => go('history')} onCompare={() => openCompare(history)} />);
 }
 
 createRoot(document.getElementById('root')).render(<App />);

@@ -1,8 +1,13 @@
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
 import re
+import secrets
+import sqlite3
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -11,7 +16,7 @@ import pdfplumber
 import uvicorn
 from docx import Document
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,6 +29,9 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DB_PATH = os.path.join(DATA_DIR, "eviden.db")
+TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -75,6 +83,44 @@ class ResumeRewriteResult(BaseModel):
     hr_intro: str
     cautions: List[str]
     model: str
+
+
+class AuthRequest(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=20)
+    password: str = Field(..., min_length=6, max_length=72)
+
+    @validator("phone")
+    def validate_phone(cls, value: str) -> str:
+        cleaned = re.sub(r"\D", "", value)
+        if len(cleaned) < 6 or len(cleaned) > 20:
+            raise ValueError("请输入有效手机号")
+        return cleaned
+
+
+class UserInfo(BaseModel):
+    id: int
+    phone: str
+    created_at: int
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserInfo
+
+
+class CloudReport(BaseModel):
+    id: str
+    record: Dict[str, Any]
+    updated_at: int
+
+
+class CloudReportRequest(BaseModel):
+    id: str = Field(..., min_length=3, max_length=120)
+    record: Dict[str, Any]
+
+
+class CloudReportsResponse(BaseModel):
+    reports: List[CloudReport]
 
 
 class Dimension(BaseModel):
@@ -148,6 +194,99 @@ class ResumeParseResponse(BaseModel):
     text: str
     char_count: int
     preview: str
+
+
+def db_connection() -> sqlite3.Connection:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def init_db() -> None:
+    with db_connection() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reports (
+                id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                record_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(id, user_id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+
+
+def hash_password(password: str, salt: Optional[str] = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180000)
+    return "{0}${1}".format(salt, digest.hex())
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt, _ = stored_hash.split("$", 1)
+    except ValueError:
+        return False
+    return hmac.compare_digest(hash_password(password, salt), stored_hash)
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    with db_connection() as connection:
+        connection.execute(
+            "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, now + TOKEN_TTL_SECONDS, now),
+        )
+    return token
+
+
+def user_from_row(row: sqlite3.Row) -> UserInfo:
+    return UserInfo(id=int(row["id"]), phone=str(row["phone"]), created_at=int(row["created_at"]))
+
+
+def current_user(authorization: Optional[str] = Header(default=None)) -> UserInfo:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="请先登录")
+    token = authorization.split(" ", 1)[1].strip()
+    now = int(time.time())
+    with db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT users.id, users.phone, users.created_at
+            FROM sessions
+            JOIN users ON users.id = sessions.user_id
+            WHERE sessions.token = ? AND sessions.expires_at > ?
+            """,
+            (token, now),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    return user_from_row(row)
 
 
 def clean_resume_text(text: str) -> str:
@@ -576,9 +715,84 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup_handler():
+    init_db()
+
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+async def register_handler(request: AuthRequest):
+    init_db()
+    now = int(time.time())
+    password_hash = hash_password(request.password)
+    try:
+        with db_connection() as connection:
+            cursor = connection.execute(
+                "INSERT INTO users(phone, password_hash, created_at) VALUES (?, ?, ?)",
+                (request.phone, password_hash, now),
+            )
+            user_id = int(cursor.lastrowid)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="这个手机号已经注册，请直接登录")
+    token = create_session(user_id)
+    return AuthResponse(token=token, user=UserInfo(id=user_id, phone=request.phone, created_at=now))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+async def login_handler(request: AuthRequest):
+    init_db()
+    with db_connection() as connection:
+        row = connection.execute("SELECT * FROM users WHERE phone = ?", (request.phone,)).fetchone()
+    if row is None or not verify_password(request.password, str(row["password_hash"])):
+        raise HTTPException(status_code=401, detail="手机号或密码不正确")
+    token = create_session(int(row["id"]))
+    return AuthResponse(token=token, user=user_from_row(row))
+
+
+@app.get("/api/auth/me", response_model=UserInfo)
+async def me_handler(user: UserInfo = Depends(current_user)):
+    return user
+
+
+@app.get("/api/reports", response_model=CloudReportsResponse)
+async def list_reports_handler(user: UserInfo = Depends(current_user)):
+    with db_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, record_json, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC",
+            (user.id,),
+        ).fetchall()
+    reports = [
+        CloudReport(id=str(row["id"]), record=json.loads(str(row["record_json"])), updated_at=int(row["updated_at"]))
+        for row in rows
+    ]
+    return CloudReportsResponse(reports=reports)
+
+
+@app.post("/api/reports", response_model=CloudReport)
+async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
+    now = int(time.time())
+    record_json = json.dumps(request.record, ensure_ascii=False)
+    with db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO reports(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(id, user_id) DO UPDATE SET record_json = excluded.record_json, updated_at = excluded.updated_at
+            """,
+            (request.id, user.id, record_json, now),
+        )
+    return CloudReport(id=request.id, record=request.record, updated_at=now)
+
+
+@app.delete("/api/reports/{report_id}")
+async def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
+    with db_connection() as connection:
+        connection.execute("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
+    return {"ok": True}
 
 
 @app.get("/")
