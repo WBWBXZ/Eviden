@@ -37,104 +37,50 @@ const sampleJD = `AI 产品经理实习生
 - 具备数据分析能力，有 SQL 经验优先。
 - 有用户研究、客户沟通或商业化场景经验加分。`;
 
-function analyze(resume, jd, target) {
-  const resumeText = resume.toLowerCase();
-  const hasAI = /ai|agent|llm|prompt|aiva|copilot|智能|大模型/.test(resumeText);
-  const hasData = /sql|data|metric|dashboard|指标|数据/.test(resumeText);
-  const hasCommercial = /commercial|sales|ttms|商业化|销售|market|客户/.test(resumeText);
-  const hasResearch = /research|interview|用户访谈|用户研究|feedback|反馈|调研/.test(resumeText);
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const HISTORY_KEY = 'eviden.analysis.history.v1';
 
-  const dimensions = [
-    { name: '核心能力匹配', weight: 30, value: hasAI ? 84 : 58, note: 'AI 工作流与产品迭代经历能直接回应核心职责' },
-    { name: '经历证据强度', weight: 25, value: hasAI && hasCommercial ? 78 : 62, note: '有真实项目证据，但个人决策与结果还需补强' },
-    { name: '业务场景匹配', weight: 15, value: hasCommercial ? 88 : 60, note: '商业化产品与区域市场经验是差异化优势' },
-    { name: '结果量化程度', weight: 10, value: 58, note: '缺少效率、采用率或业务影响等结果数据' },
-    { name: '角色责任匹配', weight: 10, value: 68, note: '跨团队推进清楚，独立负责边界仍不够明确' },
-    { name: '关键词与表达', weight: 10, value: hasData ? 70 : 60, note: '关键词基本覆盖，但需要把运营语言改为产品语言' },
-  ].map(item => ({ ...item, points: Math.round(item.value * item.weight) / 100 }));
-  const score = Math.round(dimensions.reduce((sum, item) => sum + item.points, 0));
-  const action = score >= 82 ? '建议优先投递' : score >= 74 ? '建议准备后投递' : '建议谨慎投递';
+function getStoredHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
+function persistHistory(records) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, 30)));
+}
+
+function shortText(text, length = 82) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  return cleaned.length > length ? `${cleaned.slice(0, length)}…` : cleaned;
+}
+
+function makeHistoryRecord(result, input) {
   return {
-    target,
-    resumeName: 'AI 产品方向简历（当前输入）',
-    jdName: `${target}（当前 JD）`,
-    score,
-    priority: score >= 82 ? 'A' : score >= 74 ? 'A-' : 'B',
-    action,
-    dimensions,
-    summary: '岗位方向值得尝试。AI 产品理解、商业化场景和跨团队推进已有证据；投递前应优先补强个人产品判断、结果量化与数据分析深度。',
-    evidence: [
-      {
-        req: '定义并迭代 AI 产品功能',
-        priority: '核心要求',
-        jdQuote: '基于用户需求和业务场景定义、迭代 AI 产品功能',
-        proof: '参与 Aiva Agent 从 Q&A 向 Agent 能力演进，并优化 Prompt、知识库与多轮对话。',
-        resumeQuote: '参与 Aiva Agent、Content Copilot、AI Workflow 等 AI 能力迭代',
-        level: hasAI ? '强' : '弱',
-        confidence: hasAI ? 88 : 42,
-        diagnosis: '方向高度匹配；需要补充你具体定义了什么问题、如何判断方案优先级。',
-      },
-      {
-        req: '分析反馈并推动产品落地',
-        priority: '核心要求',
-        jdQuote: '分析用户反馈和产品指标，识别机会点并推动落地',
-        proof: '通过销售反馈、市场使用数据和区域 POC 信息沉淀 Product Feedback。',
-        resumeQuote: '基于销售反馈和市场使用数据沉淀 Product Feedback，推动需求优先级评估',
-        level: hasCommercial && hasResearch ? '强' : '中',
-        confidence: hasCommercial ? 82 : 58,
-        diagnosis: '具备真实业务闭环；如果能补出需求取舍和上线结果，证据会更完整。',
-      },
-      {
-        req: '数据分析与指标能力',
-        priority: '能力门槛',
-        jdQuote: '具备数据分析能力，有 SQL 经验优先',
-        proof: '有 Dashboard 异常排查和指标归因经历，但没有明确 SQL 使用证据。',
-        resumeQuote: '结合指标归因、销售口径和脚本逻辑定位问题',
-        level: hasData ? '中' : '弱',
-        confidence: hasData ? 69 : 38,
-        diagnosis: '指标意识成立，工具深度不足；这是最可能被追问的硬能力缺口。',
-      },
-      {
-        req: '用户研究与需求洞察',
-        priority: '加分要求',
-        jdQuote: '有用户研究、客户沟通或商业化场景经验加分',
-        proof: '销售反馈和区域 POC 沟通可作为需求输入，但尚未体现系统化研究方法。',
-        resumeQuote: '协同销售、产品和区域 POC 处理需求反馈',
-        level: hasResearch ? '中' : '弱',
-        confidence: hasResearch ? 64 : 40,
-        diagnosis: '有用户声音，没有样本设计、洞察归纳和验证过程。',
-      },
-    ],
-    gaps: [
-      { level: '高', title: '数据证据不够硬', desc: 'JD 明确偏好 SQL；需要准备“发现问题 → 定位指标 → 推动修正”的完整案例。' },
-      { level: '中', title: '个人产品判断不突出', desc: '当前表达偏协同执行，需要说明你做了什么判断、舍弃了什么方案。' },
-      { level: '中', title: '结果量化不足', desc: '补充采用率、效率提升、问题规模或覆盖市场等可信结果。' },
-    ],
-    actions: [
-      { title: '重写两条核心经历', desc: '先改 Aiva Agent 与 TTMS，将产品判断、个人动作和结果放到句首。', effort: '约 45 分钟' },
-      { title: '补一组数据案例', desc: '用 Dashboard 排查经历证明指标意识，并明确 SQL 能力的真实边界。', effort: '约 30 分钟' },
-      { title: '准备三道高风险追问', desc: '围绕效果评估、个人判断和用户研究方法形成可核验回答。', effort: '约 30 分钟' },
-    ],
-    rewrites: [
-      {
-        before: '负责 TTMS 产品运营，协同销售和产品团队推进需求落地。',
-        after: '负责 TikTok 商业化产品 TTMS 的区域运营闭环，基于销售反馈与市场使用数据识别高频需求，沉淀 Product Feedback 并推动需求优先级评估与迭代落地。',
-      },
-      {
-        before: '参与 Aiva Agent 相关能力优化。',
-        after: '参与 Aiva Agent 从 Q&A 到 Agent 能力的产品迭代，围绕知识库命中、Prompt 表达和多轮对话记忆优化 AI 工作流体验。',
-      },
-    ],
-    questions: [
-      '你如何定义 Aiva Agent 能力优化是否成功？使用了什么指标？',
-      '哪一次需求排序真正体现了你的个人判断？为什么没有选择其他方案？',
-      'Dashboard 异常排查中，你亲自完成了哪些分析，SQL 能力边界是什么？',
-    ],
+    id: `report-${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    target: input.target,
+    resumeName: result.resumeName || '当前输入简历',
+    jdName: result.jdName || `${input.target}（当前 JD）`,
+    resumeText: input.resume,
+    jdText: input.jd,
+    resumeSnippet: shortText(input.resume),
+    jdSnippet: shortText(input.jd),
+    result,
   };
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+function formatDate(value) {
+  return new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 async function requestAnalysis({ resume, jd, target }) {
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
@@ -147,7 +93,7 @@ async function requestAnalysis({ resume, jd, target }) {
     let message = '分析失败，请稍后重试。';
     try {
       const data = await response.json();
-      message = data.detail || message;
+      message = typeof data.detail === 'string' ? data.detail : message;
     } catch {
       // Keep the generic message when the backend does not return JSON.
     }
@@ -161,11 +107,11 @@ function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
 
-function Landing({ onStart }) {
+function Landing({ onStart, onOpenHistory, historyCount }) {
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onStart}>开始分析</button></div>
+      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
     </nav>
 
     <div className="product-hero refined-hero">
@@ -180,7 +126,7 @@ function Landing({ onStart }) {
         </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>生成申请策略 <ArrowRight size={18}/></button>
-          <button className="secondary" onClick={onStart}>查看示例分析</button>
+          <button className="secondary" onClick={onOpenHistory}>查看历史报告</button>
         </div>
       </div>
 
@@ -204,7 +150,7 @@ function Landing({ onStart }) {
   </section>;
 }
 
-function InputPanel({ onAnalyze }) {
+function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [resume, setResume] = useState(sampleResume);
   const [jd, setJd] = useState(sampleJD);
   const [target, setTarget] = useState('AI 产品经理');
@@ -217,7 +163,7 @@ function InputPanel({ onAnalyze }) {
     setError('');
     try {
       const result = await requestAnalysis({ resume, jd, target });
-      onAnalyze(result);
+      onAnalyze(result, { resume, jd, target });
     } catch (err) {
       setError(err.message || '分析失败，请稍后重试。');
     } finally {
@@ -228,7 +174,7 @@ function InputPanel({ onAnalyze }) {
   const loadingSteps = ['解析目标 JD', '匹配简历证据', '评估能力缺口', '生成申请策略'];
 
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit} disabled={loading}>{loading ? '分析中…' : '生成报告'}</button></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading}>历史报告</button><button className="secondary" onClick={submit} disabled={loading}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
       <div><small>STEP 01 / INPUT</small><h2>建立岗位与经历的对照关系。</h2><p>上传或粘贴目标 JD 与个人经历后，Eviden 会先识别岗位要求，再抽取可验证经历证据，形成匹配判断与申请策略。</p></div>
       <button className="primary" onClick={submit} disabled={loading}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
@@ -241,27 +187,27 @@ function InputPanel({ onAnalyze }) {
     {error && <div className="error-banner editorial-card"><b>分析没有成功</b><span>{error}</span></div>}
 
     <div className="input-grid">
-      <div className="input-card editorial-card"><div className="card-title"><FileText size={18}/><b>你的经历 / 简历证据</b><span>已载入样例</span></div><textarea value={resume} onChange={e => setResume(e.target.value)} /></div>
+      <div className="input-card editorial-card"><div className="card-title"><FileText size={18}/><b>你的经历 / 简历证据</b><span>当前支持粘贴</span></div><textarea value={resume} onChange={e => setResume(e.target.value)} /></div>
       <div className="input-card editorial-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{target}</span></div><input value={target} onChange={e => setTarget(e.target.value)} /><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
     </div>
 
     <div className="hint-row">
-      <div><UploadCloud size={18}/><span>下一步支持 PDF / DOCX 上传</span></div>
-      <div><Route size={18}/><span>输出结构已预留真实 AI API</span></div>
+      <div><UploadCloud size={18}/><span>PDF / DOCX 上传已列入下一阶段</span></div>
+      <div><Route size={18}/><span>历史报告会自动保存在当前浏览器</span></div>
       <div><BadgeCheck size={18}/><span>只基于证据判断，不编造经历</span></div>
     </div>
   </section>;
 }
 
-function ResultPage({ result, onBack }) {
+function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
   return <section className="workspace result-page result-v2">
-    <nav className="nav in-app"><Brand /><button className="secondary" onClick={onBack}>重新分析</button></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
     <div className="report-context-bar">
       <div><span>当前简历</span><b>{result.resumeName}</b></div>
       <ArrowRight size={18}/>
       <div><span>目标岗位</span><b>{result.jdName}</b></div>
-      <div className="report-status"><span>报告状态</span><b>已完成证据核验</b></div>
+      <div className="report-status"><span>报告状态</span><b>已保存到历史报告</b></div>
     </div>
 
     <div className="decision-hero editorial-card">
@@ -269,7 +215,7 @@ function ResultPage({ result, onBack }) {
         <small>APPLICATION DECISION / 申请判断</small>
         <h2>{result.action}</h2>
         <p>{result.summary}</p>
-        <div className="decision-tags"><span>优先级 {result.priority}</span><span>3 项投递前动作</span><span>4 组证据映射</span></div>
+        <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.actions?.length || 0} 项投递前动作</span><span>{result.evidence?.length || 0} 组证据映射</span></div>
       </div>
       <div className="decision-score"><span>综合匹配评分</span><b>{result.score}</b><em>/ 100</em><small>由 6 个维度加权计算</small></div>
     </div>
@@ -301,15 +247,15 @@ function ResultPage({ result, onBack }) {
         </div>
 
         <div className="panel editorial-card action-plan-v2">
-          <div className="panel-head"><div><b>投递前优先行动</b><p>按投入产出比排序，不需要一次补齐所有缺口</p></div><span>预计总计约 105 分钟</span></div>
+          <div className="panel-head"><div><b>投递前优先行动</b><p>按投入产出比排序，不需要一次补齐所有缺口</p></div><span>优先级 {result.priority}</span></div>
           <div className="action-list-v2">{result.actions.map((item, index) => <div key={item.title}><span>0{index + 1}</span><section><b>{item.title}</b><p>{item.desc}</p></section><em>{item.effort}</em></div>)}</div>
         </div>
 
-        <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历改写建议</b><p>先改表达，不虚构尚未发生的结果</p></div><span>2 条高优先级</span></div>{result.rewrites.map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{r.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{r.after}</p></div></div>)}</div>
+        <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历改写建议</b><p>先改表达，不虚构尚未发生的结果</p></div><span>{result.rewrites?.length || 0} 条高优先级</span></div>{result.rewrites.map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{r.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{r.after}</p></div></div>)}</div>
       </main>
 
       <aside className="result-rail">
-        <div className="decision-card rail-summary"><small>下一步</small><h3>先增强证据，<br/>再提交申请。</h3><p>这个岗位不是能力方向不匹配，而是现有简历还没有充分证明你的产品判断和结果影响。</p><button className="primary full">生成简历改写版</button></div>
+        <div className="decision-card rail-summary"><small>下一步</small><h3>先增强证据，<br/>再提交申请。</h3><p>这份报告已经保存。你可以继续分析其他岗位，再进入多岗位对比看投递优先级。</p><button className="primary full" onClick={onCompare}>加入多岗位对比</button></div>
         <div className="panel compact editorial-card"><div className="panel-head"><b>优先补齐的缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{g.title}</b><p>{g.desc}</p></div></div>)}</div>
         <div className="panel compact editorial-card question-panel"><div className="panel-head"><b>面试追问压力测试</b></div>{result.questions.map((question, index) => <div className="question" key={question}><span>Q{index + 1}</span><p>{question}</p></div>)}</div>
       </aside>
@@ -317,12 +263,93 @@ function ResultPage({ result, onBack }) {
   </section>;
 }
 
+function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
+  const [selected, setSelected] = useState(records.slice(0, 3).map(item => item.id));
+  const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id].slice(-4));
+  const selectedRecords = records.filter(item => selected.includes(item.id));
+
+  return <section className="workspace history-page">
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比已选 {selectedRecords.length}</button></div></nav>
+    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>保存每一次岗位判断。</h2><p>历史报告先保存在当前浏览器，方便你回看和做多岗位对比；后续接登录后会同步到账号。</p></div></div>
+    {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里。</p></div> : <div className="history-grid">
+      {records.map(record => <article className="history-card editorial-card" key={record.id}>
+        <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />加入对比</label>
+        <div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div>
+        <h3>{record.target}</h3>
+        <p>{record.result.summary}</p>
+        <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span></div>
+        <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
+        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div>
+      </article>)}
+    </div>}
+  </section>;
+}
+
+function ComparePage({ records, onBack, onView }) {
+  const compared = records.slice(0, 4);
+  return <section className="workspace compare-page">
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回历史报告</button></div></nav>
+    <div className="page-head"><div><small>ROLE COMPARISON / 多岗位对比</small><h2>先判断投哪个，再决定怎么准备。</h2><p>当前 v0 使用历史报告横向对比：匹配分、申请建议、主要优势与缺口。后续会支持同一简历批量分析多个 JD。</p></div></div>
+    {compared.length < 2 ? <div className="empty-state editorial-card"><b>至少选择 2 份报告</b><p>回到历史报告，勾选 2–4 个岗位后再对比。</p></div> : <div className="compare-grid">
+      {compared.map(record => <article className="compare-card editorial-card" key={record.id}>
+        <div className="compare-score"><span>{record.target}</span><b>{record.result.score}</b><em>{record.result.action}</em></div>
+        <div className="compare-section"><label>主要优势</label><p>{record.result.evidence?.[0]?.proof || record.result.summary}</p></div>
+        <div className="compare-section"><label>最高风险</label><p>{record.result.gaps?.[0]?.title}：{record.result.gaps?.[0]?.desc}</p></div>
+        <div className="compare-section"><label>优先行动</label><p>{record.result.actions?.[0]?.title}｜{record.result.actions?.[0]?.effort}</p></div>
+        <button className="secondary full" onClick={() => onView(record)}>查看完整报告</button>
+      </article>)}
+    </div>}
+  </section>;
+}
+
 function App() {
   const [step, setStep] = useState('landing');
+  const [previousStep, setPreviousStep] = useState('landing');
   const [result, setResult] = useState(null);
-  if (step === 'landing') return <Landing onStart={() => setStep('input')} />;
-  if (step === 'input') return <InputPanel onAnalyze={(r) => { setResult(r); setStep('result'); }} />;
-  return <ResultPage result={result} onBack={() => setStep('input')} />;
+  const [history, setHistory] = useState(getStoredHistory);
+  const [compareRecords, setCompareRecords] = useState([]);
+
+  const go = next => {
+    setPreviousStep(step);
+    setStep(next);
+  };
+
+  const saveAndShowResult = (analysisResult, input) => {
+    const record = makeHistoryRecord(analysisResult, input);
+    const nextHistory = [record, ...history.filter(item => item.id !== record.id)].slice(0, 30);
+    setHistory(nextHistory);
+    persistHistory(nextHistory);
+    setResult(record.result);
+    setPreviousStep('input');
+    setStep('result');
+  };
+
+  const deleteRecord = id => {
+    const nextHistory = history.filter(item => item.id !== id);
+    setHistory(nextHistory);
+    persistHistory(nextHistory);
+  };
+
+  const viewRecord = record => {
+    setResult(record.result);
+    setPreviousStep(step);
+    setStep('result');
+  };
+
+  const openCompare = records => {
+    const source = Array.isArray(records) && records.length ? records : history.slice(0, 4);
+    setCompareRecords(source);
+    setPreviousStep(step);
+    setStep('compare');
+  };
+
+  const backFromCurrent = () => setStep(previousStep || 'landing');
+
+  if (step === 'landing') return <Landing onStart={() => go('input')} onOpenHistory={() => go('history')} historyCount={history.length} />;
+  if (step === 'input') return <InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => go('history')} />;
+  if (step === 'history') return <HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />;
+  if (step === 'compare') return <ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />;
+  return <ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => go('history')} onCompare={() => openCompare(history)} />;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
