@@ -103,6 +103,28 @@ async function requestAnalysis({ resume, jd, target }) {
   return response.json();
 }
 
+async function requestResumeParse(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE_URL}/api/parse-resume`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = '简历解析失败，请换一个文件重试。';
+    try {
+      const data = await response.json();
+      message = typeof data.detail === 'string' ? data.detail : message;
+    } catch {
+      // Keep the generic message when the backend does not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
 function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
@@ -151,19 +173,31 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
 }
 
 function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
-  const [resume, setResume] = useState(sampleResume);
+  const [resume, setResume] = useState('');
+  const [resumeFile, setResumeFile] = useState(null);
+  const [resumePreview, setResumePreview] = useState('');
+  const [parseStatus, setParseStatus] = useState('idle');
+  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX 简历，上传后会先解析成可核验文本。');
   const [jd, setJd] = useState(sampleJD);
   const [target, setTarget] = useState('AI 产品经理');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const submit = async () => {
-    if (loading) return;
+    if (loading || parseStatus === 'parsing') return;
+    if (!resume.trim()) {
+      setError('请先上传并解析一份 PDF / DOCX 简历。');
+      return;
+    }
+    if (!jd.trim()) {
+      setError('请粘贴目标岗位 JD。');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
       const result = await requestAnalysis({ resume, jd, target });
-      onAnalyze(result, { resume, jd, target });
+      onAnalyze(result, { resume, jd, target, resumeFileName: resumeFile?.name });
     } catch (err) {
       setError(err.message || '分析失败，请稍后重试。');
     } finally {
@@ -171,13 +205,45 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     }
   };
 
-  const loadingSteps = ['解析目标 JD', '匹配简历证据', '评估能力缺口', '生成申请策略'];
+  const handleResumeUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setResume('');
+    setResumePreview('');
+    setResumeFile(file);
+    setParseStatus('parsing');
+    setParseMessage('正在解析简历文件…');
+    try {
+      const parsed = await requestResumeParse(file);
+      setResume(parsed.text || '');
+      setResumePreview(parsed.preview || '');
+      setParseStatus('success');
+      setParseMessage(`已解析 ${parsed.char_count || 0} 个字符，可以生成报告。`);
+    } catch (err) {
+      setParseStatus('error');
+      setParseMessage(err.message || '简历解析失败，请换一个文件重试。');
+      setResumeFile(null);
+      event.target.value = '';
+    }
+  };
+
+  const resetResume = () => {
+    setResume('');
+    setResumeFile(null);
+    setResumePreview('');
+    setParseStatus('idle');
+    setParseMessage('支持 PDF / DOCX 简历，上传后会先解析成可核验文本。');
+  };
+
+  const canSubmit = !loading && parseStatus === 'success' && resume.trim().length >= 80 && jd.trim().length >= 50;
+  const loadingSteps = ['读取简历证据', '解析目标 JD', '评估能力缺口', '生成申请策略'];
 
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading}>历史报告</button><button className="secondary" onClick={submit} disabled={loading}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading}>历史报告</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>建立岗位与经历的对照关系。</h2><p>上传或粘贴目标 JD 与个人经历后，Eviden 会先识别岗位要求，再抽取可验证经历证据，形成匹配判断与申请策略。</p></div>
-      <button className="primary" onClick={submit} disabled={loading}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
+      <div><small>STEP 01 / INPUT</small><h2>上传简历文件，并粘贴目标 JD。</h2><p>Eviden 会先把 PDF / DOCX 简历解析为可核验文本，再对照岗位要求生成匹配判断、风险缺口和申请策略。</p></div>
+      <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
       <div className="loading-orbit"><span></span><i></i><i></i><i></i></div>
@@ -187,12 +253,24 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     {error && <div className="error-banner editorial-card"><b>分析没有成功</b><span>{error}</span></div>}
 
     <div className="input-grid">
-      <div className="input-card editorial-card"><div className="card-title"><FileText size={18}/><b>你的经历 / 简历证据</b><span>当前支持粘贴</span></div><textarea value={resume} onChange={e => setResume(e.target.value)} /></div>
+      <div className="input-card editorial-card upload-card">
+        <div className="card-title"><FileText size={18}/><b>简历文件</b><span>{parseStatus === 'success' ? '已解析' : 'PDF / DOCX'}</span></div>
+        <label className={`resume-upload-zone ${parseStatus}`}>
+          <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || parseStatus === 'parsing'} />
+          <UploadCloud size={34}/>
+          <b>{resumeFile ? resumeFile.name : '上传一份简历'}</b>
+          <p>{parseMessage}</p>
+        </label>
+        {parseStatus === 'success' && <div className="resume-preview">
+          <div><label>解析预览</label><button className="secondary" onClick={resetResume} disabled={loading}>重新上传</button></div>
+          <p>{resumePreview}</p>
+        </div>}
+      </div>
       <div className="input-card editorial-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{target}</span></div><input value={target} onChange={e => setTarget(e.target.value)} /><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
     </div>
 
     <div className="hint-row">
-      <div><UploadCloud size={18}/><span>PDF / DOCX 上传已列入下一阶段</span></div>
+      <div><UploadCloud size={18}/><span>简历支持 PDF / DOCX 上传解析</span></div>
       <div><Route size={18}/><span>历史报告会自动保存在当前浏览器</span></div>
       <div><BadgeCheck size={18}/><span>只基于证据判断，不编造经历</span></div>
     </div>
