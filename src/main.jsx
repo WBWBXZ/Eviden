@@ -59,17 +59,20 @@ function shortText(text, length = 82) {
 }
 
 function makeHistoryRecord(result, input) {
+  const resumeName = input.resumeFileName || result.resumeName || '当前上传简历';
+  const jdName = result.jdName || `${input.target}（当前 JD）`;
+  const normalizedResult = { ...result, resumeName, jdName };
   return {
     id: `report-${Date.now()}`,
     createdAt: new Date().toISOString(),
     target: input.target,
-    resumeName: result.resumeName || '当前输入简历',
-    jdName: result.jdName || `${input.target}（当前 JD）`,
+    resumeName,
+    jdName,
     resumeText: input.resume,
     jdText: input.jd,
     resumeSnippet: shortText(input.resume),
     jdSnippet: shortText(input.jd),
-    result,
+    result: normalizedResult,
   };
 }
 
