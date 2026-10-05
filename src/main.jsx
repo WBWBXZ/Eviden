@@ -104,9 +104,9 @@ function Landing({ onStart }) {
       <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onStart}>开始分析</button></div>
     </nav>
 
-    <div className="home-watermark">Eviden</div>
     <div className="product-hero refined-hero">
       <div className="product-copy refined-copy">
+        <div className="product-eyebrow">AI Application Strategy Workspace</div>
         <h1><span>从 JD 到申请策略，</span><span>一次生成。</span></h1>
         <p>输入简历和目标 JD，Eviden 会生成匹配评分、证据地图、简历改写建议与面试准备方向。</p>
         <div className="home-logic" aria-label="产品逻辑说明">
@@ -121,7 +121,7 @@ function Landing({ onStart }) {
       </div>
 
       <div className="product-mock refined-mock" aria-label="Eviden 样例报告预览">
-        <div className="mock-window-bar"><span></span><span></span><span></span><b>Eviden</b></div>
+        <div className="mock-window-bar"><span></span><span></span><span></span></div>
         <div className="match-pair">
           <div><label>当前简历</label><strong>AI 产品方向简历.pdf</strong></div>
           <div><label>目标岗位</label><strong>AI 产品经理实习生</strong></div>
