@@ -168,8 +168,8 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
     <div className="product-hero refined-hero">
       <div className="product-copy refined-copy">
         <div className="product-eyebrow">AI Application Strategy Workspace</div>
-        <h1><span>从 JD 到申请策略，</span><span>一次生成。</span></h1>
-        <p>输入简历和目标 JD，Eviden 会生成匹配评分、证据地图、简历改写建议与面试准备方向。</p>
+        <h1><span>从 JD 到申请策略，</span><span>一次生成</span></h1>
+        <p>输入简历和目标 JD，生成匹配评分、证据地图、改写建议与面试准备方向</p>
         <div className="home-logic" aria-label="产品逻辑说明">
           <div><span>输入</span><b>导入当前简历</b><p>页面会显示本次使用的简历文件</p></div>
           <div><span>解析</span><b>粘贴目标 JD</b><p>系统从 JD 中识别岗位要求</p></div>
@@ -189,7 +189,7 @@ function Landing({ onStart, onOpenHistory, historyCount }) {
         </div>
         <div className="report-preview">
           <div className="preview-score"><label>当前简历 × 目标岗位</label><strong>78</strong><span>匹配评分</span></div>
-          <div className="preview-summary"><label>申请建议</label><b>准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达。</p></div>
+          <div className="preview-summary"><label>申请建议</label><b>准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达</p></div>
         </div>
         <div className="preview-table">
           <div><span>匹配证据</span><b>AI Agent / Prompt / 工作流迭代</b></div>
@@ -206,7 +206,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [resumePreview, setResumePreview] = useState('');
   const [parseStatus, setParseStatus] = useState('idle');
-  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX，建议上传可复制文本的简历。');
+  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX，建议上传可复制文本的简历');
   const [jd, setJd] = useState('');
   const [target, setTarget] = useState('');
   const [company, setCompany] = useState('');
@@ -279,7 +279,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
       setResume(parsed.text || '');
       setResumePreview(parsed.preview || '');
       setParseStatus('success');
-      setParseMessage(`已解析 ${parsed.char_count || 0} 个字符，可以生成报告。`);
+      setParseMessage(`已解析 ${parsed.char_count || 0} 个字符，可以生成报告`);
     } catch (err) {
       setParseStatus('error');
       setParseMessage(err.message || '简历解析失败，请换一个文件重试。');
@@ -294,7 +294,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setResumePreview('');
     setRewrite(null);
     setParseStatus('idle');
-    setParseMessage('支持 PDF / DOCX，建议上传可复制文本的简历。');
+    setParseMessage('支持 PDF / DOCX，建议上传可复制文本的简历');
   };
 
   const canSubmit = !loading && !rewriteLoading && parseStatus === 'success' && resume.trim().length >= 80 && target.trim().length >= 2 && jd.trim().length >= 50;
@@ -304,15 +304,15 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading || rewriteLoading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading || rewriteLoading}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准。</p></div>
+      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准</p></div>
       <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'}</button></div>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
       <div className="loading-orbit"><span></span><i></i><i></i><i></i></div>
-      <div className="loading-copy"><b>正在生成匹配报告</b><p>正在核对 JD 要求、简历原文与申请动作。</p></div>
+      <div className="loading-copy"><b>正在生成匹配报告</b><p>正在核对 JD 要求、简历原文与申请动作</p></div>
       <div className="loading-steps">{loadingSteps.map((step, index) => <span key={step} style={{ animationDelay: `${index * 0.45}s` }}>{step}</span>)}</div>
     </div>}
-    {rewriteLoading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在优化简历表达</b><p>基于原文事实重组经历表达，不新增未经证实的信息。</p></div><div className="loading-steps"><span>识别经历主线</span><span>重写项目表达</span><span>校验证据边界</span></div></div>}
+    {rewriteLoading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在优化简历表达</b><p>基于原文事实重组经历表达，不新增未经证实的信息</p></div><div className="loading-steps"><span>识别经历主线</span><span>重写项目表达</span><span>校验证据边界</span></div></div>}
     {error && <div className="error-banner editorial-card"><b>处理未完成</b><span>{error}</span></div>}
 
     <div className="input-grid">
@@ -501,7 +501,7 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
       <div className="confirm-modal editorial-card" role="dialog" aria-modal="true" aria-labelledby="delete-report-title" onClick={event => event.stopPropagation()}>
         <small>DELETE REPORT</small>
         <h3 id="delete-report-title">确认删除这份历史报告？</h3>
-        <p>删除后将无法在当前浏览器恢复。报告：{pendingDeleteRecord.target || '未命名岗位'}</p>
+        <p>报告：{pendingDeleteRecord.target || '未命名岗位'}</p>
         <div className="modal-actions"><button className="secondary" onClick={() => setConfirmDeleteId('')}>取消</button><button className="primary danger-solid" onClick={confirmDelete}>确认删除</button></div>
       </div>
     </div>}
