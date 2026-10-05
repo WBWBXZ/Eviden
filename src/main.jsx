@@ -12,6 +12,12 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
+const BACKEND_APP_URL = 'https://s541z02t.cn-east-fn.bytedance.net';
+
+if (typeof window !== 'undefined' && window.location.hostname.includes('aime-site.bytedance.net')) {
+  window.location.replace(`${BACKEND_APP_URL}${window.location.search || ''}`);
+}
+
 const sampleResume = `胥哲｜产品运营 / AI 产品方向
 
 字节跳动 TikTok 商业化产品运营
