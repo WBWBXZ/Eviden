@@ -51,3 +51,6 @@
 
 /* Explainable scoring model */
 .score-standard-panel{margin-bottom:18px}.standard-grid{display:grid;grid-template-columns:160px 1fr;gap:14px}.standard-grid>div{border:1.5px solid #151515;background:#fffdf8;padding:14px}.standard-grid label,.score-rationale label{display:block;font-size:11px;font-weight:900;letter-spacing:.6px;color:#6d675b;text-transform:uppercase;margin-bottom:6px}.standard-grid b{font-size:28px}.standard-grid p{margin:0;line-height:1.6;color:#2c2a25}.score-rationale{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}.score-rationale>div{border:1px solid rgba(21,21,21,.18);background:#f8f5ee;padding:10px}.score-rationale p{margin:0;font-size:12px;line-height:1.5;color:#2c2a25}@media(max-width:900px){.standard-grid,.score-rationale{grid-template-columns:1fr}}
+
+/* Stable homepage account actions */
+.nav-actions-compact{flex-shrink:0;gap:14px}.nav-actions-compact .account-pill{display:inline-flex!important;visibility:visible!important;opacity:1!important;min-width:76px}.product-nav{max-width:none;width:100%;padding-left:0;padding-right:48px}@media(max-width:900px){.product-nav{padding-right:16px}.nav-actions-compact{gap:8px}.nav-actions-compact button{padding:0 12px}}
