@@ -12,12 +12,6 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
-const BACKEND_APP_URL = 'https://s541z02t.cn-east-fn.bytedance.net';
-
-if (typeof window !== 'undefined' && window.location.hostname.includes('aime-site.bytedance.net')) {
-  window.location.replace(`${BACKEND_APP_URL}${window.location.search || ''}`);
-}
-
 const sampleResume = `胥哲｜产品运营 / AI 产品方向
 
 字节跳动 TikTok 商业化产品运营
@@ -231,12 +225,19 @@ function InputPanel({ onAnalyze }) {
     }
   };
 
+  const loadingSteps = ['解析目标 JD', '匹配简历证据', '评估能力缺口', '生成申请策略'];
+
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit} disabled={loading}>{loading ? '生成中…' : '生成报告'}</button></nav>
+    <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit} disabled={loading}>{loading ? '分析中…' : '生成报告'}</button></nav>
     <div className="page-head">
       <div><small>STEP 01 / INPUT</small><h2>建立岗位与经历的对照关系。</h2><p>上传或粘贴目标 JD 与个人经历后，Eviden 会先识别岗位要求，再抽取可验证经历证据，形成匹配判断与申请策略。</p></div>
-      <button className="primary" onClick={submit} disabled={loading}>{loading ? 'DeepSeek-V4-Pro 正在分析…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
+      <button className="primary" onClick={submit} disabled={loading}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
+    {loading && <div className="analysis-loading editorial-card" aria-live="polite">
+      <div className="loading-orbit"><span></span><i></i><i></i><i></i></div>
+      <div className="loading-copy"><b>正在生成你的证据链匹配报告</b><p>通常需要 20–40 秒。Eviden 正在核对 JD 要求、简历原文和申请建议。</p></div>
+      <div className="loading-steps">{loadingSteps.map((step, index) => <span key={step} style={{ animationDelay: `${index * 0.45}s` }}>{step}</span>)}</div>
+    </div>}
     {error && <div className="error-banner editorial-card"><b>分析没有成功</b><span>{error}</span></div>}
 
     <div className="input-grid">
