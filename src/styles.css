@@ -44,3 +44,5 @@
 
 /* Keep account action visible in narrower browser windows */
 .product-nav .nav-links{gap:18px}.product-nav .nav-links button{padding:0 16px}.product-nav .account-pill{max-width:150px}@media(max-width:1280px){.product-nav .nav-links>span{display:none}.product-nav .nav-links{gap:14px}.product-nav .nav-links button{padding:0 15px}}
+
+.product-nav{padding-right:34px}.product-nav .nav-links{gap:12px}@media(max-width:1400px){.product-nav .nav-links>span{display:none}}
