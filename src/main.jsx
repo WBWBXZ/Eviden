@@ -546,8 +546,8 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
 
   return <section className="workspace history-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比已选 {selectedRecords.length}</button></div></nav>
-    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>保存每一次岗位判断。</h2><p>历史报告先保存在当前浏览器，方便你回看和做多岗位对比；后续接登录后会同步到账号。</p></div></div>
-    {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里。</p></div> : <div className="history-grid">
+    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>保存每一次岗位判断</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
+    {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里</p></div> : <div className="history-grid">
       {records.map(record => <article className="history-card editorial-card" key={record.id}>
         <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />加入对比</label>
         <div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div>
@@ -599,14 +599,20 @@ function App() {
   const [step, setStep] = useState('landing');
   const [previousStep, setPreviousStep] = useState('landing');
   const [result, setResult] = useState(null);
-  const [history, setHistory] = useState(getStoredHistory);
-  const [compareRecords, setCompareRecords] = useState([]);
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
   const [user, setUser] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [compareRecords, setCompareRecords] = useState([]);
   const [showAuth, setShowAuth] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [pendingStep, setPendingStep] = useState('');
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setUser(null);
+      setHistory([]);
+      return;
+    }
     let cancelled = false;
     const restore = async () => {
       try {
@@ -619,17 +625,30 @@ function App() {
         persistHistory(merged);
       } catch (err) {
         localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(HISTORY_KEY);
         setToken('');
         setUser(null);
+        setHistory([]);
       }
     };
     restore();
     return () => { cancelled = true; };
   }, [token]);
 
+  const isLoggedIn = Boolean(token && user);
+
   const go = next => {
     setPreviousStep(step);
     setStep(next);
+  };
+
+  const requireLogin = next => {
+    if (!isLoggedIn) {
+      setPendingStep(next);
+      setShowAuth(true);
+      return;
+    }
+    go(next);
   };
 
   const handleAuthSuccess = async auth => {
@@ -644,23 +663,39 @@ function App() {
       const merged = mergeHistory(localRecords, cloud.reports || []);
       setHistory(merged);
       persistHistory(merged);
+      if (pendingStep) {
+        go(pendingStep);
+        setPendingStep('');
+      }
     } catch (err) {
       console.warn('sync history failed', err);
     }
   };
 
-  const logout = () => {
+  const confirmLogout = () => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(HISTORY_KEY);
     setToken('');
     setUser(null);
+    setHistory([]);
+    setCompareRecords([]);
+    setResult(null);
+    setShowLogoutConfirm(false);
+    setPendingStep('');
+    setPreviousStep('landing');
+    setStep('landing');
   };
 
   const saveAndShowResult = async (analysisResult, input) => {
+    if (!token) {
+      setShowAuth(true);
+      return;
+    }
     const record = makeHistoryRecord(analysisResult, input);
     const nextHistory = [record, ...history.filter(item => item.id !== record.id)].slice(0, 30);
     setHistory(nextHistory);
     persistHistory(nextHistory);
-    if (token) saveCloudReport(token, record).catch(err => console.warn('save cloud report failed', err));
+    saveCloudReport(token, record).catch(err => console.warn('save cloud report failed', err));
     setResult(record.result);
     setPreviousStep('input');
     setStep('result');
@@ -687,13 +722,17 @@ function App() {
   };
 
   const backFromCurrent = () => setStep(previousStep || 'landing');
-  const withAuth = page => <>{page}{showAuth && <AuthModal onClose={() => setShowAuth(false)} onSuccess={handleAuthSuccess} />}</>;
+  const closeAuth = () => {
+    setShowAuth(false);
+    setPendingStep('');
+  };
+  const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
-  if (step === 'landing') return withAuth(<Landing onStart={() => go('input')} onOpenHistory={() => go('history')} historyCount={history.length} user={user} onAuth={() => setShowAuth(true)} onLogout={logout} />);
-  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => go('history')} />);
+  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
-  return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => go('history')} onCompare={() => openCompare(history)} />);
+  return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }
 
 createRoot(document.getElementById('root')).render(<App />);
