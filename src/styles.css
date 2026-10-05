@@ -48,3 +48,6 @@
 .product-nav{padding-right:34px}.product-nav .nav-links{gap:12px}@media(max-width:1400px){.product-nav .nav-links>span{display:none}}
 
 .product-nav .account-pill{width:auto;max-width:none;min-width:96px;justify-content:center;white-space:nowrap}
+
+/* Explainable scoring model */
+.score-standard-panel{margin-bottom:18px}.standard-grid{display:grid;grid-template-columns:160px 1fr;gap:14px}.standard-grid>div{border:1.5px solid #151515;background:#fffdf8;padding:14px}.standard-grid label,.score-rationale label{display:block;font-size:11px;font-weight:900;letter-spacing:.6px;color:#6d675b;text-transform:uppercase;margin-bottom:6px}.standard-grid b{font-size:28px}.standard-grid p{margin:0;line-height:1.6;color:#2c2a25}.score-rationale{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}.score-rationale>div{border:1px solid rgba(21,21,21,.18);background:#f8f5ee;padding:10px}.score-rationale p{margin:0;font-size:12px;line-height:1.5;color:#2c2a25}@media(max-width:900px){.standard-grid,.score-rationale{grid-template-columns:1fr}}

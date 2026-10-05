@@ -47,12 +47,12 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://postgres:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 DIMENSION_WEIGHTS = {
-    "核心能力匹配": 30,
-    "经历证据强度": 25,
-    "业务场景匹配": 15,
-    "结果量化程度": 10,
-    "角色责任匹配": 10,
-    "关键词与表达": 10,
+    "岗位硬要求匹配": 25,
+    "项目证据可信度": 25,
+    "业务场景贴合度": 15,
+    "结果和影响力": 15,
+    "个人贡献清晰度": 10,
+    "简历表达命中度": 10,
 }
 
 
@@ -143,6 +143,9 @@ class Dimension(BaseModel):
     value: int = Field(..., ge=0, le=100)
     note: str
     points: float = 0
+    bonus_evidence: List[str] = Field(default_factory=list)
+    deduction_reason: str = ""
+    remedy: str = ""
 
 
 class Evidence(BaseModel):
@@ -185,6 +188,10 @@ class AnalysisPayload(BaseModel):
     actions: List[Action]
     rewrites: List[Rewrite]
     questions: List[str]
+    score_model: str = "通用证据链评分模型 v1"
+    position_type: str = "通用岗位"
+    confidence_label: str = "中"
+    confidence_reason: str = "基于简历与 JD 的文本完整度、证据数量和引用可核验程度判断"
 
 
 class AnalysisResult(AnalysisPayload):
@@ -635,19 +642,37 @@ def build_system_prompt() -> str:
 4. 每项要求的状态必须在诊断中明确区分：已匹配、表达缺口、证据不足、真实缺口、待确认。
 5. 区分三类问题：真实能力缺口、已有能力但证据不足、仅表达方式不佳。
 6. 评分应保守；关键词相同不等于具备强证据；硬性门槛缺失时不得被其他优势完全抵消。
-7. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
-8. 输出 rewrites 时，每条 before 必须能回指简历原文；after 要像正式简历 bullet，不要口语化。
-9. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
+7. 使用通用证据链评分模型 v1，不按岗位类型改变权重，但可以在 position_type 中识别岗位大类，帮助解释语境。
+8. 每个维度必须给出加分证据、扣分原因和补救建议，让用户能判断分数是否合理。
+9. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
+10. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
+
+通用评分标准：
+- 岗位硬要求匹配 25%：JD 的学历/年限/技能/语言/工具/行业等硬要求是否满足；硬门槛缺失要明显扣分。
+- 项目证据可信度 25%：简历是否有真实项目、职责动作、上下文和可核验成果支撑，而不是只写泛泛能力。
+- 业务场景贴合度 15%：过往业务、用户、行业、产品形态、商业模式是否贴近目标岗位。
+- 结果和影响力 15%：是否有指标、规模、效率提升、收入/转化/质量改善等结果；没有量化结果要扣分。
+- 个人贡献清晰度 10%：候选人是主导/owner/关键参与还是协助执行，贡献边界是否清楚。
+- 简历表达命中度 10%：简历表达是否对齐 JD 语言、关键词和岗位叙事，但不能用关键词堆砌替代证据。
+
+置信度规则：
+- 高：JD 具体、简历解析完整、引用证据充分且可逐字核验。
+- 中：JD 或简历有部分模糊，但核心判断仍有证据。
+- 低：JD 太泛、简历文本过短/疑似解析缺失、关键判断依赖推断。
 
 JSON 必须严格包含：
 {
+  "score_model":"通用证据链评分模型 v1",
+  "position_type":"识别到的岗位大类，如产品经理/AI 产品经理/运营/增长/商业化/数据分析/通用岗位",
+  "confidence_label":"高/中/低",
+  "confidence_reason":"为什么本次评分可信或不够可信",
   "dimensions": [
-    {"name":"核心能力匹配","value":0到100整数,"note":"评分依据"},
-    {"name":"经历证据强度","value":0到100整数,"note":"评分依据"},
-    {"name":"业务场景匹配","value":0到100整数,"note":"评分依据"},
-    {"name":"结果量化程度","value":0到100整数,"note":"评分依据"},
-    {"name":"角色责任匹配","value":0到100整数,"note":"评分依据"},
-    {"name":"关键词与表达","value":0到100整数,"note":"评分依据"}
+    {"name":"岗位硬要求匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"项目证据可信度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"业务场景贴合度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"结果和影响力","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"个人贡献清晰度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
+    {"name":"简历表达命中度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
   ],
   "summary":"申请建议的核心判断，2到3句",
   "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因"}],
@@ -657,7 +682,7 @@ JSON 必须严格包含：
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 2 项，questions 3 项。每个字段保持简洁，单条说明不超过 45 个中文字符。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 2 项，questions 3 项。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -708,6 +733,9 @@ def normalize_dimensions(raw_dimensions: List[Dimension]) -> List[Dimension]:
                 value=source.value,
                 note=source.note,
                 points=round(source.value * weight / 100.0, 1),
+                bonus_evidence=source.bonus_evidence[:3],
+                deduction_reason=source.deduction_reason,
+                remedy=source.remedy,
             )
         )
     return normalized
@@ -767,6 +795,10 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
         actions=payload.actions[:3],
         rewrites=payload.rewrites[:3],
         questions=payload.questions[:3],
+        score_model=payload.score_model,
+        position_type=payload.position_type,
+        confidence_label=payload.confidence_label if payload.confidence_label in ("高", "中", "低") else "中",
+        confidence_reason=payload.confidence_reason,
     )
 
 
@@ -787,7 +819,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         "model": model_name(),
         "messages": messages,
         "temperature": 0.1,
-        "max_tokens": 3000,
+        "max_tokens": 3800,
         "enable_thinking": False,
         "stream": False,
     }

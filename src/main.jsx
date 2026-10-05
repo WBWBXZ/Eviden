@@ -484,19 +484,24 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         <small>APPLICATION DECISION / 申请判断</small>
         <h2>{result.action}</h2>
         <p>{result.summary}</p>
-        <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.actions?.length || 0} 项投递前动作</span><span>{result.evidence?.length || 0} 组证据映射</span></div>
+        <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.position_type || '通用岗位'}</span><span>{result.confidence_label || '中'}置信度</span></div>
       </div>
       <div className="decision-score"><span>综合匹配评分</span><b>{result.score}</b><em>/ 100</em><small>由 6 个维度加权计算</small></div>
     </div>
 
     <div className="result-grid result-grid-v2">
       <main className="result-main">
+        <div className="panel editorial-card score-standard-panel">
+          <div className="panel-head"><div><b>本次评分标准</b><p>{result.score_model || '通用证据链评分模型 v1'}</p></div><span>{result.position_type || '通用岗位'}</span></div>
+          <div className="standard-grid"><div><label>评分置信度</label><b>{result.confidence_label || '中'}</b></div><div><label>置信度原因</label><p>{result.confidence_reason || '基于简历与 JD 的文本完整度、证据数量和引用可核验程度判断'}</p></div></div>
+        </div>
+
         <div className="panel editorial-card score-explain">
           <div className="panel-head"><div><b>为什么是 {result.score} 分</b><p>评分来自简历证据，不使用 JD 中的关键词为简历加分</p></div><span>维度分 × 权重 = 贡献分</span></div>
           <div className="score-table">
             {result.dimensions.map(item => <div className="score-row" key={item.name}>
               <div className="score-name"><b>{item.name}</b><span>权重 {item.weight}%</span></div>
-              <div className="score-track"><i><em style={{ width: `${item.value}%` }} /></i><p>{item.note}</p></div>
+              <div className="score-track"><i><em style={{ width: `${item.value}%` }} /></i><p>{item.note}</p>{(item.bonus_evidence?.length || item.deduction_reason || item.remedy) && <div className="score-rationale"><div><label>加分证据</label><p>{item.bonus_evidence?.join('；') || '暂无强证据'}</p></div><div><label>扣分原因</label><p>{item.deduction_reason || '暂无明显扣分'}</p></div><div><label>补救建议</label><p>{item.remedy || '保持当前表达'}</p></div></div>}</div>
               <div className="score-number"><b>{item.value}</b><span>贡献 {item.points}</span></div>
             </div>)}
           </div>
