@@ -60,12 +60,17 @@ function shortText(text, length = 82) {
 
 function makeHistoryRecord(result, input) {
   const resumeName = input.resumeFileName || result.resumeName || '当前上传简历';
-  const jdName = result.jdName || `${input.target}（当前 JD）`;
+  const company = input.company || '';
+  const businessUnit = input.businessUnit || '';
+  const contextParts = [company, businessUnit, input.target].filter(Boolean);
+  const jdName = result.jdName || `${contextParts.join(' · ') || input.target}（当前 JD）`;
   const normalizedResult = { ...result, resumeName, jdName };
   return {
     id: `report-${Date.now()}`,
     createdAt: new Date().toISOString(),
     target: input.target,
+    company,
+    businessUnit,
     resumeName,
     jdName,
     resumeText: input.resume,
@@ -85,11 +90,11 @@ function formatDate(value) {
   });
 }
 
-async function requestAnalysis({ resume, jd, target }) {
+async function requestAnalysis({ resume, jd, target, company, businessUnit }) {
   const response = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jd, target }),
+    body: JSON.stringify({ resume, jd, target, company, business_unit: businessUnit }),
   });
 
   if (!response.ok) {
@@ -183,6 +188,8 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX 简历，上传后会先解析成可核验文本。');
   const [jd, setJd] = useState(sampleJD);
   const [target, setTarget] = useState('AI 产品经理');
+  const [company, setCompany] = useState('');
+  const [businessUnit, setBusinessUnit] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -199,8 +206,8 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setLoading(true);
     setError('');
     try {
-      const result = await requestAnalysis({ resume, jd, target });
-      onAnalyze(result, { resume, jd, target, resumeFileName: resumeFile?.name });
+      const result = await requestAnalysis({ resume, jd, target, company, businessUnit });
+      onAnalyze(result, { resume, jd, target, company, businessUnit, resumeFileName: resumeFile?.name });
     } catch (err) {
       setError(err.message || '分析失败，请稍后重试。');
     } finally {
@@ -245,7 +252,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading}>历史报告</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>上传简历文件，并粘贴目标 JD。</h2><p>Eviden 会先把 PDF / DOCX 简历解析为可核验文本，再对照岗位要求生成匹配判断、风险缺口和申请策略。</p></div>
+      <div><small>STEP 01 / INPUT</small><h2>上传简历文件，并补充目标场景。</h2><p>填写公司与事业部后，Eviden 会用更明确的业务语境解读 JD，再把 PDF / DOCX 简历证据与岗位要求逐项对照。</p></div>
       <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '正在生成申请策略…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
@@ -269,12 +276,12 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
           <p>{resumePreview}</p>
         </div>}
       </div>
-      <div className="input-card editorial-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{target}</span></div><input value={target} onChange={e => setTarget(e.target.value)} /><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
+      <div className="input-card editorial-card jd-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{[company, businessUnit, target].filter(Boolean).join(' · ') || target}</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="岗位名称，例如 AI 产品经理实习生" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司，例如 快手 / 阿里 / 字节" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="事业部 / 方向，例如 主站 / 商业化 / 国际化" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} /></div>
     </div>
 
     <div className="hint-row">
       <div><UploadCloud size={18}/><span>简历支持 PDF / DOCX 上传解析</span></div>
-      <div><Route size={18}/><span>历史报告会自动保存在当前浏览器</span></div>
+      <div><Route size={18}/><span>公司 / 事业部会进入历史记录与匹配语境</span></div>
       <div><BadgeCheck size={18}/><span>只基于证据判断，不编造经历</span></div>
     </div>
   </section>;
@@ -358,7 +365,7 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
         <div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div>
         <h3>{record.target}</h3>
         <p>{record.result.summary}</p>
-        <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span></div>
+        <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}{record.businessUnit && <span>{record.businessUnit}</span>}</div>
         <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
         <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div>
       </article>)}
