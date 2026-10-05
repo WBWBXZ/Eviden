@@ -134,6 +134,29 @@ function analyze(resume, jd, target) {
   };
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+async function requestAnalysis({ resume, jd, target }) {
+  const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resume, jd, target }),
+  });
+
+  if (!response.ok) {
+    let message = '分析失败，请稍后重试。';
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch {
+      // Keep the generic message when the backend does not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
 function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
@@ -186,18 +209,29 @@ function InputPanel({ onAnalyze }) {
   const [jd, setJd] = useState(sampleJD);
   const [target, setTarget] = useState('AI 产品经理');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const submit = () => {
+  const submit = async () => {
+    if (loading) return;
     setLoading(true);
-    setTimeout(() => onAnalyze(analyze(resume, jd, target)), 650);
+    setError('');
+    try {
+      const result = await requestAnalysis({ resume, jd, target });
+      onAnalyze(result);
+    } catch (err) {
+      setError(err.message || '分析失败，请稍后重试。');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit}>生成报告</button></nav>
+    <nav className="nav in-app"><Brand /><button className="secondary" onClick={submit} disabled={loading}>{loading ? '生成中…' : '生成报告'}</button></nav>
     <div className="page-head">
       <div><small>STEP 01 / INPUT</small><h2>建立岗位与经历的对照关系。</h2><p>上传或粘贴目标 JD 与个人经历后，Eviden 会先识别岗位要求，再抽取可验证经历证据，形成匹配判断与申请策略。</p></div>
-      <button className="primary" onClick={submit} disabled={loading}>{loading ? '正在生成证据链…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
+      <button className="primary" onClick={submit} disabled={loading}>{loading ? 'DeepSeek-V4-Pro 正在分析…' : '生成岗位匹配报告'} <BrainCircuit size={18}/></button>
     </div>
+    {error && <div className="error-banner editorial-card"><b>分析没有成功</b><span>{error}</span></div>}
 
     <div className="input-grid">
       <div className="input-card editorial-card"><div className="card-title"><FileText size={18}/><b>你的经历 / 简历证据</b><span>已载入样例</span></div><textarea value={resume} onChange={e => setResume(e.target.value)} /></div>
