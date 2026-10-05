@@ -212,7 +212,6 @@ function AuthModal({ onClose, onSuccess }) {
     <div className="confirm-modal auth-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
       <small>{mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}</small>
       <h3>{mode === 'login' ? '登录 Eviden' : '创建账号'}</h3>
-      <p>手机号就是你的账号，用于同步历史报告</p>
       <div className="auth-fields"><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="手机号" inputMode="numeric" /><input value={password} onChange={event => setPassword(event.target.value)} placeholder="密码（至少 6 位）" type="password" /></div>
       {error && <div className="auth-error">{error}</div>}
       <div className="modal-actions"><button className="secondary" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '注册新账号' : '已有账号登录'}</button><button className="primary" onClick={submit} disabled={loading || phone.replace(/\D/g, '').length < 6 || password.length < 6}>{loading ? '处理中…' : mode === 'login' ? '登录' : '注册并登录'}</button></div>
@@ -224,7 +223,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button>{user ? <button className="account-pill" onClick={onLogout}>{user.phone} · 退出</button> : <button onClick={onAuth}>登录</button>}<button onClick={onStart}>开始分析</button></div>
+      <div className="nav-links"><span>简历导入</span><span>JD 解析</span><span>申请策略</span><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button>{user ? <button className="account-pill" onClick={onLogout}>{user.phone} · 退出</button> : <button onClick={onAuth}>登录</button>}</div>
     </nav>
 
     <div className="product-hero refined-hero">
