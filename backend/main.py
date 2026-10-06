@@ -208,6 +208,7 @@ class HealthResponse(BaseModel):
     ok: bool
     model: str
     configured: bool
+    db_backend: str = "sqlite"
 
 
 class ResumeParseResponse(BaseModel):
@@ -217,15 +218,26 @@ class ResumeParseResponse(BaseModel):
     preview: str
 
 
+def database_url() -> str:
+    explicit_url = DATABASE_URL or read_local_secret("DATABASE_URL") or read_config_module("DATABASE_URL")
+    if explicit_url:
+        return explicit_url.strip()
+    db_password = get_secret("SUPABASE_DB_PASSWORD")
+    if not db_password:
+        return ""
+    db_host = get_secret("SUPABASE_DB_HOST") or "db.fjuiloufsrvewjlvijys.supabase.co"
+    return "postgresql://postgres:{0}@{1}:5432/postgres".format(quote(db_password, safe=""), db_host)
+
+
 def use_postgres() -> bool:
-    return bool(DATABASE_URL)
+    return bool(database_url())
 
 
 def db_connection():
     if use_postgres():
         if psycopg2 is None:
             raise RuntimeError("Postgres dependency is not installed")
-        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        return psycopg2.connect(database_url(), cursor_factory=RealDictCursor)
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
@@ -1031,6 +1043,7 @@ async def health_handler():
         ok=True,
         model=model_name(),
         configured=bool(get_secret("SILICONFLOW_API_KEY")),
+        db_backend="supabase" if use_postgres() else "sqlite",
     )
 
 
