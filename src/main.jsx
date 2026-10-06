@@ -223,7 +223,10 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
-      <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button>{user ? <button className="account-pill" onClick={onLogout}>退出登录</button> : <button className="account-pill" onClick={onAuth}>登录</button>}</div>
+      <div className="nav-right">
+        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
+        <div className="account-entry">{user ? <button onClick={onLogout}>退出登录</button> : <button onClick={onAuth}>登录</button>}</div>
+      </div>
     </nav>
 
     <div className="product-hero refined-hero">
