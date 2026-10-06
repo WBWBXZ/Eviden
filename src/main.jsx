@@ -265,7 +265,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
   </section>;
 }
 
-function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
+function InputPanel({ onAnalyze, onReuse, history, onBack, onOpenHistory }) {
   const [resume, setResume] = useState('');
   const [resumeFile, setResumeFile] = useState(null);
   const [resumePreview, setResumePreview] = useState('');
@@ -292,6 +292,18 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     }
     if (!jd.trim()) {
       setError('请粘贴目标岗位 JD。');
+      return;
+    }
+    const normalizeInput = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const existing = history.find(record =>
+      normalizeInput(record.resumeText) === normalizeInput(resume) &&
+      normalizeInput(record.jdText) === normalizeInput(jd) &&
+      normalizeInput(record.target) === normalizeInput(target) &&
+      normalizeInput(record.company) === normalizeInput(company) &&
+      normalizeInput(record.businessUnit) === normalizeInput(businessUnit)
+    );
+    if (existing) {
+      onReuse(existing);
       return;
     }
     setLoading(true);
@@ -475,8 +487,6 @@ const trimUiEnd = (value) => String(value || '').trim().replace(/[。.]$/g, '');
 const matchLabelText = (level) => ({ 强: '强匹配', 中: '部分匹配', 弱: '弱匹配' }[level] || `${level || '中'}匹配`);
 
 function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
-  const strongestEvidence = result.evidence?.[0];
-  const firstGap = result.gaps?.[0];
   return <section className="workspace result-page result-v2">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
@@ -511,16 +521,18 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         </div>
 
         <div className="panel editorial-card evidence-map-v2">
-          <div className="panel-head"><div><b>JD 要求与简历证据</b><p>左看岗位要求，右看简历证据，最后给出判断</p></div><span>逐条核对</span></div>
+          <div className="panel-head"><div><b>JD 要求与简历证据</b><p>按岗位要求、JD 原文、简历证据、匹配判断依次阅读</p></div><span>逐条核对</span></div>
           {result.evidence.map((item, index) => <article className="evidence-card-v2 evidence-card-clean" key={item.req}>
             <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className="evidence-compare-grid">
-              <section className="evidence-lane jd-lane"><label>JD 原文要求</label><p>“{trimUiEnd(item.jdQuote)}”</p></section>
-              <section className="evidence-lane resume-lane"><label>简历可用证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
+              <section className="evidence-lane jd-lane"><label>JD 原文</label><p>“{trimUiEnd(item.jdQuote)}”</p></section>
+              <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
               <section className="evidence-verdict"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{trimUiEnd(item.diagnosis)}</p></section>
             </div>
           </article>)}
         </div>
+
+        <div className="panel compact editorial-card result-gaps"><div className="panel-head"><b>优先补齐的缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
 
         <div className="panel editorial-card action-plan-v2">
           <div className="panel-head"><div><b>投递前优先行动</b><p>按投入产出比排序，不需要一次补齐所有缺口</p></div><span>优先级 {result.priority}</span></div>
@@ -528,17 +540,11 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         </div>
 
         <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历改写建议</b><p>先改表达，不虚构尚未发生的结果</p></div><span>{result.rewrites?.length || 0} 条高优先级</span></div>{result.rewrites.map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{trimUiEnd(r.before)}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{trimUiEnd(r.after)}</p></div></div>)}</div>
-      </main>
 
-      <aside className="result-rail">
-        <div className="rail-sticky-stack">
-          <div className="decision-card rail-summary"><small>下一步</small><h3>先补强证据<br/>再提交申请</h3><p>报告已保存，可继续分析其他岗位，再进入多岗位对比看投递优先级</p><button className="primary full" onClick={onCompare}>加入多岗位对比</button></div>
-          <div className="panel compact editorial-card rail-snapshot"><div className="panel-head"><b>报告速览</b></div><div className="snapshot-grid"><div><span>匹配分</span><b>{result.score}</b></div><div><span>优先级</span><b>{result.priority}</b></div><div><span>岗位类型</span><b>{result.position_type || '通用岗位'}</b></div><div><span>分析方式</span><b>证据链</b></div></div></div>
-          <div className="panel compact editorial-card rail-focus"><div className="panel-head"><b>当前重点</b></div><div className="focus-item"><span>最强证据</span><p>{strongestEvidence ? trimUiEnd(strongestEvidence.req) : '先完成一轮证据核对'}</p></div><div className="focus-item"><span>优先缺口</span><p>{firstGap ? trimUiEnd(firstGap.title) : '暂无高优先级缺口'}</p></div></div>
-          <div className="panel compact editorial-card"><div className="panel-head"><b>优先补齐的缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
-          <div className="panel compact editorial-card question-panel"><div className="panel-head"><b>面试追问压力测试</b></div>{result.questions.map((question, index) => <div className="question" key={question}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
-        </div>
-      </aside>
+        <div className="panel compact editorial-card question-panel result-questions"><div className="panel-head"><b>面试追问压力测试</b></div>{result.questions.map((question, index) => <div className="question" key={question}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
+
+        <div className="decision-card result-next-step"><small>下一步</small><h3>先补强证据，再提交申请</h3><p>报告已保存，可继续分析其他岗位，再进入多岗位对比看投递优先级</p><button className="primary" onClick={onCompare}>加入多岗位对比</button></div>
+      </main>
     </div>
   </section>;
 }
@@ -740,7 +746,7 @@ function App() {
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
-  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
+  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onReuse={viewRecord} history={history} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
   return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
