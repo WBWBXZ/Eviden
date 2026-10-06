@@ -512,14 +512,13 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
 
         <div className="panel editorial-card evidence-map-v2">
           <div className="panel-head"><div><b>JD 要求 × 简历证据地图</b><p>每一项判断都能回到对应原文</p></div><span>要求 → 证据 → 诊断</span></div>
-          {result.evidence.map((item, index) => <article className="evidence-card-v2" key={item.req}>
-            <div className="evidence-card-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{item.req}</h3></div><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{item.level}证据</span></div>
-            <div className="evidence-quotes">
-              <div><label>JD 原文</label><p>“{item.jdQuote}”</p></div>
-              <ArrowRight size={18}/>
-              <div><label>简历原文</label><p>“{item.resumeQuote}”</p></div>
+          {result.evidence.map((item, index) => <article className="evidence-card-v2 evidence-card-clean" key={item.req}>
+            <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{item.req}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{item.level}证据</span><em>{item.confidence}% 置信度</em></div></div>
+            <div className="evidence-compare-grid">
+              <section><label>JD 要求原文</label><p>“{item.jdQuote}”</p></section>
+              <section><label>简历对应证据</label><p>“{item.resumeQuote}”</p></section>
+              <section className="evidence-verdict"><label>匹配结论</label><b>{item.proof}</b><p>{item.diagnosis}</p></section>
             </div>
-            <div className="evidence-diagnosis"><div><label>匹配判断</label><p>{item.proof}</p></div><div><label>诊断</label><p>{item.diagnosis}</p></div><strong>{item.confidence}%<small>证据置信度</small></strong></div>
           </article>)}
         </div>
 
