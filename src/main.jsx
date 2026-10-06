@@ -473,9 +473,25 @@ function RewritePage({ onBack }) {
 
 const trimUiEnd = (value) => String(value || '').trim().replace(/[。.]$/g, '');
 const matchLabelText = (level) => ({ 强: '强匹配', 中: '部分匹配', 弱: '弱匹配' }[level] || `${level || '中'}匹配`);
+const cleanDiagnosis = value => trimUiEnd(value)
+  .replace(/引用包含概括或组合片段，?需以原文为准复核/g, '')
+  .replace(/[；;，,]\s*$/g, '')
+  .trim();
+const interviewerQuestion = gap => {
+  const title = trimUiEnd(gap.title);
+  if (/行业|背景|领域/.test(title)) return '请讲一个你快速理解陌生行业，并将洞察转化为产品决策的具体案例';
+  if (/数据|量化|指标/.test(title)) return '请用数据说明一个你负责项目的目标、关键动作和最终结果';
+  if (/协作|推进|沟通/.test(title)) return '请讲一个你推动跨团队协作并解决分歧的具体案例';
+  return `请结合具体项目说明你如何补足「${title}」这项能力`;
+};
+const normalizeInterviewQuestion = question => {
+  const text = trimUiEnd(question);
+  const relayed = text.match(/^如果面试官追问「(.+?)」，你会如何用具体案例说明？?$/);
+  return relayed ? interviewerQuestion({ title: relayed[1] }) : text;
+};
 const reportQuestions = result => {
-  const questions = [...(result.questions || [])];
-  const supplements = (result.gaps || []).map(gap => `如果面试官追问「${trimUiEnd(gap.title)}」，你会如何用具体案例说明？`);
+  const questions = (result.questions || []).map(normalizeInterviewQuestion);
+  const supplements = (result.gaps || []).map(interviewerQuestion);
   for (const question of supplements) {
     if (questions.length >= 5) break;
     questions.push(question);
@@ -533,7 +549,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
             <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className="evidence-compare-grid">
               <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
-              <section className="evidence-verdict"><label>匹配判断</label><div><b>{trimUiEnd(item.proof)}</b><p>{trimUiEnd(item.diagnosis)}</p></div></section>
+              <section className="evidence-verdict"><label>匹配判断</label><div><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p></div></section>
             </div>
           </article>)}
         </div>

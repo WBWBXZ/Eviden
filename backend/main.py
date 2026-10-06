@@ -752,7 +752,7 @@ JSON 必须严格包含：
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻，不要出现“如果面试官追问”“你会如何说明”之类的转述句式。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -832,7 +832,10 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
             item.confidence = min(item.confidence, 55)
             if item.level == "强":
                 item.level = "中"
-            item.diagnosis = "引用包含概括或组合片段，需以原文为准复核；" + item.diagnosis
+            if not resume_grounded:
+                item.resumeQuote = "无直接证据"
+                if not item.diagnosis.startswith("证据不足"):
+                    item.diagnosis = "证据不足：" + item.diagnosis
         checked_evidence.append(item)
 
     if score >= 82:
