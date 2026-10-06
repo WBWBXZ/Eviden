@@ -9,6 +9,7 @@ import re
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -19,9 +20,11 @@ import uvicorn
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2.pool import ThreadedConnectionPool
 except ImportError:  # pragma: no cover - SQLite fallback still works without Postgres dependency.
     psycopg2 = None
     RealDictCursor = None
+    ThreadedConnectionPool = None
 from docx import Document
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -46,6 +49,7 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     db_host = os.getenv("SUPABASE_DB_HOST", "db.fjuiloufsrvewjlvijys.supabase.co")
     DATABASE_URL = f"postgresql://postgres:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
+_DB_POOL = None
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -233,15 +237,35 @@ def use_postgres() -> bool:
     return bool(database_url())
 
 
-def db_connection():
+@contextmanager
+def db_connection():  # type: ignore[no-untyped-def]
+    global _DB_POOL
     if use_postgres():
-        if psycopg2 is None:
+        if psycopg2 is None or ThreadedConnectionPool is None:
             raise RuntimeError("Postgres dependency is not installed")
-        return psycopg2.connect(database_url(), cursor_factory=RealDictCursor)
+        if _DB_POOL is None:
+            _DB_POOL = ThreadedConnectionPool(1, 6, database_url(), cursor_factory=RealDictCursor)
+        connection = _DB_POOL.getconn()
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            _DB_POOL.putconn(connection)
+        return
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def sql_params(sql: str) -> str:
@@ -393,6 +417,31 @@ def create_session(user_id: int) -> str:
     return token
 
 
+def authenticate_and_create_session(phone: str, password: str):  # type: ignore[no-untyped-def]
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM users WHERE phone = %s", (phone,))
+                row = cursor.fetchone()
+                if row is None or not verify_password(password, str(row["password_hash"])):
+                    return None, ""
+                cursor.execute(
+                    "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (%s, %s, %s, %s)",
+                    (token, int(row["id"]), now + TOKEN_TTL_SECONDS, now),
+                )
+                return row, token
+        row = connection.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
+        if row is None or not verify_password(password, str(row["password_hash"])):
+            return None, ""
+        connection.execute(
+            "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+            (token, int(row["id"]), now + TOKEN_TTL_SECONDS, now),
+        )
+        return row, token
+
+
 def user_from_row(row) -> UserInfo:  # type: ignore[no-untyped-def]
     return UserInfo(id=int(row["id"]), phone=str(row["phone"]), created_at=int(row["created_at"]))
 
@@ -474,7 +523,15 @@ def score_extracted_text(text: str) -> float:
 
 def best_pdf_text(content: bytes) -> str:
     candidates = []
-    for parser in (parse_pdf_resume_with_pdfplumber, parse_pdf_resume_with_fitz, parse_pdf_resume_with_pypdf):
+    try:
+        fast_text = parse_pdf_resume_with_fitz(content)
+        if fast_text:
+            candidates.append(fast_text)
+            if len(fast_text) >= 160 and score_extracted_text(fast_text) >= 110:
+                return fast_text
+    except Exception as error:
+        LOGGER.info("PDF parser %s failed: %s", parse_pdf_resume_with_fitz.__name__, error)
+    for parser in (parse_pdf_resume_with_pdfplumber, parse_pdf_resume_with_pypdf):
         try:
             parsed = parser(content)
             if parsed:
@@ -556,7 +613,7 @@ async def request_ocr_for_image(image: bytes, page_number: int) -> str:
 
 async def parse_pdf_resume_with_ocr_fallback(content: bytes) -> str:
     text = best_pdf_text(content)
-    if len(text) >= 80 and score_extracted_text(text) >= 180:
+    if len(text) >= 120 and score_extracted_text(text) >= 100:
         return text
     images = render_pdf_pages_for_ocr(content)
     if not images:
@@ -695,7 +752,7 @@ JSON 必须严格包含：
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 2 项，questions 3 项。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -739,13 +796,14 @@ def normalize_dimensions(raw_dimensions: List[Dimension]) -> List[Dimension]:
         source = by_name.get(name)
         if source is None:
             raise ValueError("missing score dimension: {0}".format(name))
+        stable_value = max(0, min(100, int(round(source.value / 5.0) * 5)))
         normalized.append(
             Dimension(
                 name=name,
                 weight=weight,
-                value=source.value,
+                value=stable_value,
                 note=source.note,
-                points=round(source.value * weight / 100.0, 1),
+                points=round(stable_value * weight / 100.0, 1),
                 bonus_evidence=source.bonus_evidence[:3],
                 deduction_reason=source.deduction_reason,
                 remedy=source.remedy,
@@ -983,10 +1041,9 @@ async def register_handler(request: AuthRequest):
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login_handler(request: AuthRequest):
-    row = fetch_one("SELECT * FROM users WHERE phone = ?", (request.phone,))
-    if row is None or not verify_password(request.password, str(row["password_hash"])):
+    row, token = authenticate_and_create_session(request.phone, request.password)
+    if row is None:
         raise HTTPException(status_code=401, detail="手机号或密码不正确")
-    token = create_session(int(row["id"]))
     return AuthResponse(token=token, user=user_from_row(row))
 
 
