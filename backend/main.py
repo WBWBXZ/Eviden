@@ -968,7 +968,6 @@ async def startup_handler():
 
 @app.post("/api/auth/register", response_model=AuthResponse)
 async def register_handler(request: AuthRequest):
-    init_db()
     now = int(time.time())
     password_hash = hash_password(request.password)
     try:
@@ -983,7 +982,6 @@ async def register_handler(request: AuthRequest):
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login_handler(request: AuthRequest):
-    init_db()
     row = fetch_one("SELECT * FROM users WHERE phone = ?", (request.phone,))
     if row is None or not verify_password(request.password, str(row["password_hash"])):
         raise HTTPException(status_code=401, detail="手机号或密码不正确")

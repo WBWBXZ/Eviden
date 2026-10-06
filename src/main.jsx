@@ -472,14 +472,11 @@ function RewritePage({ onBack }) {
 }
 
 const trimUiEnd = (value) => String(value || '').trim().replace(/[。.]$/g, '');
-const confidenceLabelText = (label) => ({ 高: '高可信', 中: '中等可信', 低: '需复核' }[label] || '中等可信');
-const confidenceTagText = (label) => ({ 高: '结果可信度高', 中: '结果可信度中等', 低: '结果需复核' }[label] || '结果可信度中等');
 const matchLabelText = (level) => ({ 强: '强匹配', 中: '部分匹配', 弱: '弱匹配' }[level] || `${level || '中'}匹配`);
 
 function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
   const strongestEvidence = result.evidence?.[0];
   const firstGap = result.gaps?.[0];
-  const confidenceText = confidenceLabelText(result.confidence_label);
   return <section className="workspace result-page result-v2">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
@@ -495,18 +492,13 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         <small>APPLICATION DECISION / 申请判断</small>
         <h2>{trimUiEnd(result.action)}</h2>
         <p>{trimUiEnd(result.summary)}</p>
-        <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.position_type || '通用岗位'}</span><span>{confidenceTagText(result.confidence_label)}</span></div>
+        <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.position_type || '通用岗位'}</span><span>证据链匹配</span></div>
       </div>
       <div className="decision-score"><span>综合匹配评分</span><b>{result.score}</b><em>/ 100</em><small>6 个维度加权判断</small></div>
     </div>
 
     <div className="result-grid result-grid-v2">
       <main className="result-main">
-        <div className="panel editorial-card score-standard-panel">
-          <div className="panel-head"><div><b>评分口径</b></div><span>{result.position_type || '通用岗位'}</span></div>
-          <div className="standard-grid"><div><label>结果可信度</label><b>{confidenceText}</b></div><div><label>判断依据</label><p>{trimUiEnd(result.confidence_reason || '基于简历与 JD 的文本完整度、证据数量和引用可核验程度判断')}</p></div></div>
-        </div>
-
         <div className="panel editorial-card score-explain">
           <div className="panel-head"><div><b>匹配分拆解</b><p>看 JD 要求与简历证据的贴合度，不用关键词堆砌加分</p></div><span>维度权重</span></div>
           <div className="score-table">
@@ -521,7 +513,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         <div className="panel editorial-card evidence-map-v2">
           <div className="panel-head"><div><b>JD 要求与简历证据</b><p>左看岗位要求，右看简历证据，最后给出判断</p></div><span>逐条核对</span></div>
           {result.evidence.map((item, index) => <article className="evidence-card-v2 evidence-card-clean" key={item.req}>
-            <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span><em>可信度 {item.confidence}%</em></div></div>
+            <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className="evidence-compare-grid">
               <section className="evidence-lane jd-lane"><label>JD 原文要求</label><p>“{trimUiEnd(item.jdQuote)}”</p></section>
               <section className="evidence-lane resume-lane"><label>简历可用证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
@@ -541,7 +533,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
       <aside className="result-rail">
         <div className="rail-sticky-stack">
           <div className="decision-card rail-summary"><small>下一步</small><h3>先补强证据<br/>再提交申请</h3><p>报告已保存，可继续分析其他岗位，再进入多岗位对比看投递优先级</p><button className="primary full" onClick={onCompare}>加入多岗位对比</button></div>
-          <div className="panel compact editorial-card rail-snapshot"><div className="panel-head"><b>报告速览</b></div><div className="snapshot-grid"><div><span>匹配分</span><b>{result.score}</b></div><div><span>优先级</span><b>{result.priority}</b></div><div><span>可信度</span><b>{confidenceText}</b></div><div><span>岗位类型</span><b>{result.position_type || '通用岗位'}</b></div></div></div>
+          <div className="panel compact editorial-card rail-snapshot"><div className="panel-head"><b>报告速览</b></div><div className="snapshot-grid"><div><span>匹配分</span><b>{result.score}</b></div><div><span>优先级</span><b>{result.priority}</b></div><div><span>岗位类型</span><b>{result.position_type || '通用岗位'}</b></div><div><span>分析方式</span><b>证据链</b></div></div></div>
           <div className="panel compact editorial-card rail-focus"><div className="panel-head"><b>当前重点</b></div><div className="focus-item"><span>最强证据</span><p>{strongestEvidence ? trimUiEnd(strongestEvidence.req) : '先完成一轮证据核对'}</p></div><div className="focus-item"><span>优先缺口</span><p>{firstGap ? trimUiEnd(firstGap.title) : '暂无高优先级缺口'}</p></div></div>
           <div className="panel compact editorial-card"><div className="panel-head"><b>优先补齐的缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
           <div className="panel compact editorial-card question-panel"><div className="panel-head"><b>面试追问压力测试</b></div>{result.questions.map((question, index) => <div className="question" key={question}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
@@ -670,25 +662,25 @@ function App() {
     go(next);
   };
 
-  const handleAuthSuccess = async auth => {
+  const handleAuthSuccess = auth => {
     localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
     setToken(auth.token);
     setUser(auth.user);
     setShowAuth(false);
-    try {
-      const localRecords = getStoredHistory();
-      await Promise.all(localRecords.map(record => saveCloudReport(auth.token, record)));
-      const cloud = await fetchCloudReports(auth.token);
-      const merged = mergeHistory(localRecords, cloud.reports || []);
-      setHistory(merged);
-      persistHistory(merged);
-      if (pendingStep) {
-        go(pendingStep);
-        setPendingStep('');
-      }
-    } catch (err) {
-      console.warn('sync history failed', err);
+    const nextStep = pendingStep;
+    if (nextStep) {
+      go(nextStep);
+      setPendingStep('');
     }
+    const localRecords = getStoredHistory();
+    Promise.allSettled(localRecords.map(record => saveCloudReport(auth.token, record)))
+      .then(() => fetchCloudReports(auth.token))
+      .then(cloud => {
+        const merged = mergeHistory(localRecords, cloud.reports || []);
+        setHistory(merged);
+        persistHistory(merged);
+      })
+      .catch(err => console.warn('sync history failed', err));
   };
 
   const confirmLogout = () => {
