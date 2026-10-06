@@ -654,10 +654,11 @@ def build_system_prompt() -> str:
 4. 每项要求的状态必须在诊断中明确区分：已匹配、表达缺口、证据不足、真实缺口、待确认。
 5. 区分三类问题：真实能力缺口、已有能力但证据不足、仅表达方式不佳。
 6. 评分应保守；关键词相同不等于具备强证据；硬性门槛缺失时不得被其他优势完全抵消。
-7. 使用通用证据链评分模型 v1，不按岗位类型改变权重，但可以在 position_type 中识别岗位大类，帮助解释语境。
-8. 每个维度必须给出加分证据、扣分原因和补救建议，让用户能判断分数是否合理。
-9. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
-10. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
+7. 对完全相同的简历、JD、目标岗位、公司和事业部输入，必须保持一致的维度分、总分、优先级和结论；不要因为表达随机性改变评分。
+8. 使用通用证据链评分模型 v1，不按岗位类型改变权重，但可以在 position_type 中识别岗位大类，帮助解释语境。
+9. 每个维度必须给出加分证据、扣分原因和补救建议，让用户能判断分数是否合理。
+10. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
+11. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
 
 通用评分标准：
 - 核心能力匹配 30%：JD 最关键的能力要求，简历里是否有直接对应的经历、技能和项目证据。
@@ -830,7 +831,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
     base_payload: Dict[str, Any] = {
         "model": model_name(),
         "messages": messages,
-        "temperature": 0.1,
+        "temperature": 0,
         "max_tokens": 3800,
         "enable_thinking": False,
         "stream": False,
