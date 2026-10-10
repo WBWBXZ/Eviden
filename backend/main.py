@@ -245,41 +245,23 @@ def db_connection():  # type: ignore[no-untyped-def]
         if psycopg2 is None or ThreadedConnectionPool is None:
             raise RuntimeError("Postgres dependency is not installed")
         if _DB_POOL is None:
-            _DB_POOL = ThreadedConnectionPool(
-                1,
-                6,
-                database_url(),
-                cursor_factory=RealDictCursor,
-                connect_timeout=8,
-                keepalives=1,
-                keepalives_idle=15,
-                keepalives_interval=5,
-                keepalives_count=3,
-                options="-c statement_timeout=8000 -c lock_timeout=5000",
-            )
-        connection = None
+            _DB_POOL = ThreadedConnectionPool(1, 6, database_url(), cursor_factory=RealDictCursor)
+        connection = _DB_POOL.getconn()
         try:
-            connection = _DB_POOL.getconn()
             try:
                 with connection.cursor() as health_cursor:
                     health_cursor.execute("SELECT 1")
                     health_cursor.fetchone()
             except Exception:
                 _DB_POOL.putconn(connection, close=True)
-                connection = None
                 connection = _DB_POOL.getconn()
             yield connection
             connection.commit()
         except Exception:
-            if connection is not None and not connection.closed:
-                try:
-                    connection.rollback()
-                except Exception:
-                    pass
+            connection.rollback()
             raise
         finally:
-            if connection is not None:
-                _DB_POOL.putconn(connection, close=bool(connection.closed))
+            _DB_POOL.putconn(connection)
         return
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
@@ -1055,7 +1037,7 @@ async def startup_handler():
 
 
 @app.post("/api/auth/register", response_model=AuthResponse)
-def register_handler(request: AuthRequest):
+async def register_handler(request: AuthRequest):
     now = int(time.time())
     password_hash = hash_password(request.password)
     try:
@@ -1069,7 +1051,7 @@ def register_handler(request: AuthRequest):
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
-def login_handler(request: AuthRequest):
+async def login_handler(request: AuthRequest):
     row, token = authenticate_and_create_session(request.phone, request.password)
     if row is None:
         raise HTTPException(status_code=401, detail="手机号或密码不正确")
@@ -1077,12 +1059,12 @@ def login_handler(request: AuthRequest):
 
 
 @app.get("/api/auth/me", response_model=UserInfo)
-def me_handler(user: UserInfo = Depends(current_user)):
+async def me_handler(user: UserInfo = Depends(current_user)):
     return user
 
 
 @app.get("/api/reports", response_model=CloudReportsResponse)
-def list_reports_handler(user: UserInfo = Depends(current_user)):
+async def list_reports_handler(user: UserInfo = Depends(current_user)):
     rows = fetch_all(
         "SELECT id, record_json, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC",
         (user.id,),
@@ -1095,7 +1077,7 @@ def list_reports_handler(user: UserInfo = Depends(current_user)):
 
 
 @app.post("/api/reports", response_model=CloudReport)
-def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
+async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
     now = int(time.time())
     record_json = json.dumps(request.record, ensure_ascii=False)
     execute_sql(
@@ -1109,7 +1091,7 @@ def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(cu
 
 
 @app.delete("/api/reports/{report_id}")
-def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
+async def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
     execute_sql("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
     return {"ok": True}
 

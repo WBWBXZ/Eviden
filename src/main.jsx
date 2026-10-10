@@ -116,21 +116,16 @@ const authLogin = (payload) => apiJson('/api/auth/login', { method: 'POST', body
 const authRegister = (payload) => apiJson('/api/auth/register', { method: 'POST', body: payload });
 const authMe = (token) => apiJson('/api/auth/me', { token });
 const fetchCloudReports = async (token) => {
-  let lastError;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 8000);
-    try {
-      return await apiJson('/api/reports', { token, signal: controller.signal });
-    } catch (error) {
-      lastError = error.name === 'AbortError' ? new Error('云端报告同步超时') : error;
-      if (error.status === 401) throw error;
-      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 600));
-    } finally {
-      window.clearTimeout(timer);
-    }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 30000);
+  try {
+    return await apiJson('/api/reports', { token, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('云端报告同步超时');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
   }
-  throw lastError;
 };
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
