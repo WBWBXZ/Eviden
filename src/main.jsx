@@ -410,7 +410,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
 
     <div className="hint-row">
       <div><UploadCloud size={18}/><span>支持文本型 PDF / DOCX</span></div>
-      <div><Route size={18}/><span>公司和业务方向均为选填</span></div>
+      <div><Route size={18}/><span>公司和业务方向选填，用于补充岗位场景</span></div>
       <div><BadgeCheck size={18}/><span>仅依据简历与 JD 进行分析</span></div>
     </div>
     {rewrite && <div className="rewrite-output editorial-card"><div className="panel-head"><div><b>{rewrite.positioning}</b><p>{rewrite.strategy}</p></div><span>{rewrite.bullets?.length || 0} 条建议</span></div><div className="rewrite-list">{rewrite.bullets.map((item, index) => <div className="rewrite-row" key={index}><div><label>{item.section} · 原文</label><p>{item.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{item.after}</p><small>{item.evidence_boundary}</small></div></div>)}</div><div className="rewrite-extra"><div><b>HR 开场白</b><p>{rewrite.hr_intro}</p></div><div><b>还需补充</b><p>{(rewrite.gaps || []).join(' / ') || '暂无'}</p></div></div></div>}
