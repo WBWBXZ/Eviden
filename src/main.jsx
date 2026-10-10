@@ -675,17 +675,17 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
   };
 
   return <section className="workspace history-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比已选 {selectedRecords.length}</button></div></nav>
-    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>保存每一次岗位判断</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比岗位（{selectedRecords.length}）</button></div></nav>
+    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>岗位记录</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
     {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里</p></div> : <div className="history-grid">
       {records.map(record => <article className="history-card editorial-card" key={record.id}>
-        <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />加入对比</label>
+        <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label>
         <div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div>
         <h3>{record.target}</h3>
         <p>{record.result.summary}</p>
         <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}{record.businessUnit && <span>{record.businessUnit}</span>}</div>
         <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
-        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看报告</button><button className="secondary danger" onClick={() => setConfirmDeleteId(record.id)}>删除</button></div>
+        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看完整报告</button><button className="secondary danger" onClick={() => setConfirmDeleteId(record.id)}>删除</button></div>
       </article>)}
     </div>}
     {pendingDeleteRecord && <div className="modal-backdrop" role="presentation" onClick={() => setConfirmDeleteId('')}>

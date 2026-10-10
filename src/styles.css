@@ -105,3 +105,174 @@
 
 /* Result page v11: give judgment more room when resume evidence is short */
 .evidence-compare-grid{grid-template-columns:minmax(0,5fr) minmax(360px,7fr)!important}.evidence-compare-grid.short-evidence{grid-template-columns:minmax(240px,4fr) minmax(420px,8fr)!important}.evidence-compare-grid .resume-lane p{max-width:52em}.evidence-verdict p{max-width:68em}@media(max-width:820px){.evidence-compare-grid,.evidence-compare-grid.short-evidence{grid-template-columns:1fr!important}}
+
+
+/* Mobile override: 375–430px full-flow adaptation. Keep this block last. */
+@media(max-width:620px){
+  html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
+  body{overflow-wrap:anywhere}
+  .landing,.product-home,.workspace{width:100%;max-width:100%;padding:16px;overflow-x:hidden}
+  .landing:before,.refined-home:after{display:none}
+  .editorial-card,.product-mock,.refined-mock,.magazine-cover,.compact,.evidence-map-v2,.decision-card,.result-rail .compact,.confirm-modal{max-width:100%;box-shadow:4px 4px 0 #151515}
+  .primary,.secondary,.nav-links button,.account-entry button{min-height:44px;height:auto;padding:9px 14px;justify-content:center;line-height:20px}
+
+  /* Navigation: natural height and a dedicated touch-action row. */
+  .nav,.nav.in-app,.product-nav{height:auto;min-height:48px;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px;padding:0}
+  .brand{min-width:0;gap:9px}
+  .brand-mark{width:36px;height:36px;flex:0 0 36px}
+  .brand small{font-size:11px}
+  .nav-right{width:100%;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .nav-actions-compact{min-width:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .nav-actions-compact button,.account-entry,.account-entry button{width:100%;min-width:0;white-space:normal}
+  .account-entry{width:auto}
+  .nav.in-app .nav-actions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;justify-content:stretch}
+  .nav.in-app .nav-actions:only-child{grid-template-columns:1fr}
+  .nav-actions button{width:100%;min-width:0;white-space:normal}
+
+  /* Landing and report preview. */
+  .product-hero,.refined-hero,.hero-grid{display:grid;grid-template-columns:minmax(0,1fr);min-height:0;gap:28px}
+  .product-copy,.refined-copy{min-width:0}
+  .product-eyebrow{height:auto;min-height:34px;padding:8px 11px;line-height:18px;margin-bottom:16px}
+  .product-copy h1,.refined-copy h1,.hero-copy h1{font-size:36px;line-height:1.15;letter-spacing:-1.2px}
+  .refined-copy h1 span,.hero-copy h1 span{white-space:normal}
+  .product-copy p,.refined-copy>p,.hero-copy p{font-size:16px;line-height:27px}
+  .hero-actions,.product-actions{display:grid;grid-template-columns:1fr;gap:10px;margin-top:22px}
+  .hero-actions button{width:100%}
+  .home-logic{margin-top:24px}
+  .home-logic div{grid-template-columns:44px minmax(0,1fr);gap:8px 10px;padding:12px}
+  .home-logic p{grid-column:1/-1;white-space:normal}
+  .logic-strip,.match-pair,.report-preview,.mock-report-grid,.mock-context-row{grid-template-columns:1fr}
+  .mock-window-bar{height:auto;min-height:48px;padding:8px 12px;flex-wrap:wrap}
+  .mock-window-bar>b{min-width:0;flex:1;overflow-wrap:anywhere}
+  .mock-report-action{min-height:38px;height:auto;margin-left:auto;white-space:normal}
+  .preview-score,.mock-score-card{min-height:160px;padding:18px}
+  .preview-score strong,.mock-score-card strong{font-size:64px;line-height:64px;max-width:100%;overflow-wrap:anywhere}
+  .preview-summary,.mock-insight-card{padding:20px}
+  .preview-summary b,.mock-insight-card strong{font-size:24px;line-height:32px}
+  .preview-table div,.mock-evidence-list div{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:13px 14px}
+  .preview-table b,.mock-evidence-list b,.match-pair strong,.mock-context-row strong{white-space:normal;overflow:visible;text-overflow:clip}
+
+  /* Shared page headers and input experience. */
+  .page-head{display:block;margin-bottom:18px}
+  .page-head h2{font-size:32px;line-height:40px;letter-spacing:-.8px;margin-top:5px}
+  .page-head p{line-height:24px}
+  .page-actions{display:grid;grid-template-columns:1fr;width:100%;margin-top:16px}
+  .page-actions button{width:100%}
+  .input-grid{grid-template-columns:minmax(0,1fr);gap:16px}
+  .input-card{padding:14px;min-width:0}
+  .card-title{height:auto;min-height:38px;align-items:flex-start}
+  .card-title span,.jd-card .card-title span{max-width:48%;white-space:normal;overflow:visible;text-overflow:clip;text-align:right}
+  .upload-card,.jd-card{min-height:0}
+  .upload-card .resume-upload-zone,.resume-upload-zone{min-height:180px;padding:20px 14px}
+  .resume-upload-zone b{font-size:18px;line-height:25px;white-space:normal}
+  .resume-upload-zone p{font-size:13px;line-height:20px}
+  .resume-preview>div{align-items:flex-start;flex-wrap:wrap}
+  .resume-preview .secondary{min-height:44px;height:auto}
+  .input-card textarea,.input-card input+textarea,.jd-card textarea{height:230px;min-height:230px;resize:vertical}
+  .input-card input,.auth-fields input{min-height:44px;height:44px}
+  .hint-row{grid-template-columns:1fr;gap:10px;margin-top:16px}
+  .hint-row div{min-height:54px;padding:10px 14px}
+  .analysis-loading{grid-template-columns:48px minmax(0,1fr);gap:12px;padding:14px}
+  .loading-orbit{width:46px;height:46px}
+  .loading-steps{grid-template-columns:1fr 1fr;width:100%}
+  .loading-steps span{white-space:normal;text-align:center;padding:8px}
+  .error-banner{align-items:flex-start;flex-direction:column;padding:14px}
+  .rewrite-output{padding:14px}
+  .rewrite-output .panel-head b{font-size:20px}
+  .rewrite-extra{grid-template-columns:1fr}
+
+  /* Result overview, score dimensions and continuous reading flow. */
+  .report-context-bar{grid-template-columns:1fr;padding:14px;gap:12px}
+  .report-context-bar b{white-space:normal;overflow:visible;text-overflow:clip;line-height:21px}
+  .report-context-bar>svg{transform:rotate(90deg);margin:auto}
+  .report-context-bar .report-status{border-left:0;border-top:1.5px solid #151515;padding:12px 0 0}
+  .decision-hero,.result-cover{grid-template-columns:1fr;overflow:hidden}
+  .decision-copy{padding:22px 18px}
+  .decision-copy h2,.result-cover-left h2{font-size:34px;line-height:1.16;letter-spacing:-1px}
+  .decision-score{min-height:170px;border-left:0;border-top:1.5px solid #151515;padding:18px}
+  .decision-score>b,.result-cover-score b,.score-block b{font-size:64px;line-height:66px;max-width:100%;overflow-wrap:anywhere}
+  .result-cover{padding:18px;gap:14px}
+  .result-cover-score{min-height:160px;padding:16px}
+  .result-cover-score em{max-width:100%;white-space:normal}
+  .result-cover-actions button{width:100%}
+  .report-kpis{grid-template-columns:1fr 1fr;gap:10px}
+  .report-kpis div{min-width:0;padding:14px;min-height:105px}
+  .report-kpis b{font-size:36px;line-height:38px;overflow-wrap:anywhere}
+  .result-grid,.result-grid-v2,.result-grid.result-grid-v2{width:100%;max-width:100%;margin-top:18px;grid-template-columns:1fr}
+  .result-main{gap:16px;min-width:0}
+  .panel-head,.result-v2 .panel-head{min-height:58px;height:auto;padding:12px 14px;gap:10px;align-items:flex-start}
+  .panel-head b,.evidence-map-v2 .panel-head b{font-size:18px;line-height:24px}
+  .panel-head span{white-space:normal;text-align:right}
+  .score-card{grid-template-columns:1fr;padding:14px;gap:14px}
+  .score-block{height:150px}
+  .dim-grid{grid-template-columns:1fr}
+  .score-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:14px}
+  .score-track{grid-column:1/-1;grid-row:2}
+  .score-number{text-align:right}
+  .score-number b{font-size:25px}
+
+  /* Evidence comparison and action-oriented report cards. */
+  .evidence-card-head.clean-head,.clean-head{grid-template-columns:34px minmax(0,1fr)!important;padding:14px!important;align-items:start!important}
+  .clean-head .row-index{width:30px!important;height:30px!important;font-size:14px!important}
+  .evidence-card-head.clean-head h3{font-size:16px!important;line-height:1.5!important;overflow-wrap:anywhere}
+  .evidence-badges{grid-column:2;align-items:flex-start!important;flex-direction:row}
+  .evidence-badges .level{min-width:0!important;min-height:32px;height:auto!important;white-space:normal}
+  .evidence-compare-grid,.evidence-compare-grid.short-evidence{display:grid!important;grid-template-columns:minmax(0,1fr)!important}
+  .evidence-compare-grid>section,.evidence-compare-grid .resume-lane,.evidence-verdict{width:100%;height:auto!important;min-width:0;padding:16px!important;border-right:0!important}
+  .evidence-verdict{display:block!important}
+  .evidence-verdict .verdict-copy,.evidence-verdict .evidence-action{padding:0!important}
+  .evidence-action{padding-top:14px!important}
+  .evidence-compare-grid p,.evidence-verdict p{font-size:14px!important;line-height:1.7!important;max-width:100%;overflow-wrap:anywhere}
+  .evidence-row{grid-template-columns:32px minmax(0,1fr);gap:10px;padding:14px}
+  .evidence-row .level{grid-column:2;justify-self:start}
+  .action-list-v2>div{grid-template-columns:34px minmax(0,1fr);gap:10px;padding:15px 14px;align-items:start}
+  .action-list-v2 em{grid-column:2;justify-self:start;min-height:32px;display:inline-flex;align-items:center;white-space:normal}
+  .action-steps{grid-template-columns:1fr}
+  .rewrite-row,.rewrite-output .rewrite-row{grid-template-columns:1fr;padding:14px;gap:10px}
+  .rewrite-row>div{min-width:0;min-height:0}
+  .rewrite-row>svg{transform:rotate(90deg);margin:auto}
+  .result-questions .question{grid-template-columns:36px minmax(0,1fr)!important;gap:10px!important;padding:14px!important;align-items:start!important}
+  .result-questions .question p{font-size:15px!important;line-height:1.6!important}
+  .gap{align-items:flex-start;padding:14px;gap:10px}
+  .gap>div{min-width:0}
+  .result-next-step{grid-template-columns:1fr;gap:10px;padding:20px 18px}
+  .result-next-step button{width:100%;white-space:normal}
+
+  /* History and comparison cards. */
+  .history-grid,.compare-grid{grid-template-columns:minmax(0,1fr);gap:14px;margin-bottom:24px}
+  .history-card,.compare-card{min-width:0;padding:15px;gap:12px}
+  .compare-check{min-height:44px}
+  .compare-check input{width:20px;height:20px;flex:0 0 20px}
+  .history-score{gap:10px;align-items:flex-start}
+  .history-score span{line-height:18px;overflow-wrap:anywhere}
+  .history-score b{font-size:44px;line-height:44px;max-width:45%;overflow-wrap:anywhere}
+  .history-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .history-actions .secondary,.compare-card .secondary{min-height:44px;height:auto;width:100%}
+  .compare-score{margin:-15px -15px 0;padding:16px;overflow-wrap:anywhere}
+  .compare-score b{font-size:54px;line-height:56px;overflow-wrap:anywhere}
+  .empty-state{padding:20px}
+
+  /* Dialogs: safe viewport gutters and thumb-friendly actions. */
+  .modal-backdrop{padding:16px;align-items:center;overflow-y:auto}
+  .confirm-modal,.auth-modal{width:100%;max-width:460px;padding:20px;margin:auto;max-height:calc(100dvh - 32px);overflow-y:auto}
+  .confirm-modal h3{font-size:23px;line-height:30px}
+  .modal-actions,.auth-modal .modal-actions{display:grid;grid-template-columns:1fr;gap:10px}
+  .modal-actions button{width:100%;min-height:44px}
+}
+
+@media(max-width:430px){
+  .workspace,.landing,.product-home{padding-left:16px;padding-right:16px}
+  .nav.in-app .nav-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-kpis{grid-template-columns:1fr}
+  .history-meta span{white-space:normal}
+}
+
+@media(max-width:390px){
+  .brand small{display:none}
+  .nav-right{grid-template-columns:1fr}
+  .account-entry{width:100%}
+  .product-copy h1,.refined-copy h1,.hero-copy h1{font-size:33px}
+  .page-head h2{font-size:29px;line-height:37px}
+  .preview-table div,.mock-evidence-list div{grid-template-columns:1fr}
+  .nav.in-app .nav-actions,.history-actions,.loading-steps{grid-template-columns:1fr}
+}
