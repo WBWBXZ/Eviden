@@ -51,6 +51,9 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
+_ANALYSIS_CACHE: Dict[str, tuple] = {}
+_ANALYSIS_CACHE_TTL_SECONDS = 60 * 60 * 6
+_ANALYSIS_CACHE_MAX_ITEMS = 64
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -965,7 +968,35 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
     )
 
 
+def analysis_cache_key(request: AnalyzeRequest) -> str:
+    payload = json.dumps(request.dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256((model_name() + "\n" + payload).encode("utf-8")).hexdigest()
+
+
+def get_cached_analysis(cache_key: str) -> Optional[AnalysisPayload]:
+    cached = _ANALYSIS_CACHE.get(cache_key)
+    if not cached:
+        return None
+    created_at, payload = cached
+    if time.time() - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
+        _ANALYSIS_CACHE.pop(cache_key, None)
+        return None
+    return AnalysisPayload.parse_obj(payload)
+
+
+def cache_analysis(cache_key: str, payload: AnalysisPayload) -> None:
+    if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_ITEMS:
+        oldest_key = min(_ANALYSIS_CACHE, key=lambda key: _ANALYSIS_CACHE[key][0])
+        _ANALYSIS_CACHE.pop(oldest_key, None)
+    _ANALYSIS_CACHE[cache_key] = (time.time(), payload.dict())
+
+
 async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
+    cache_key = analysis_cache_key(request)
+    cached = get_cached_analysis(cache_key)
+    if cached is not None:
+        return cached
+
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
@@ -994,7 +1025,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         if use_json_format:
             payload["response_format"] = {"type": "json_object"}
         try:
-            timeout = httpx.Timeout(90.0, connect=15.0)
+            timeout = httpx.Timeout(60.0, connect=10.0)
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 response = await client.post(
                     "{0}/chat/completions".format(api_base_url().rstrip("/")),
@@ -1006,7 +1037,9 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
                 raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, detail))
             response_data = response.json()
             content = response_data["choices"][0]["message"]["content"]
-            return AnalysisPayload.parse_obj(extract_json(content))
+            result = AnalysisPayload.parse_obj(extract_json(content))
+            cache_analysis(cache_key, result)
+            return result
         except Exception as error:
             last_error = error
             LOGGER.warning("AI analysis attempt failed: %s", error)
