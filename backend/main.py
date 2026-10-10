@@ -192,7 +192,7 @@ class Evidence(BaseModel):
     proof: str
     resumeQuote: str
     level: str
-    confidence: int = Field(..., ge=0, le=100)
+    confidence: int = Field(60, ge=0, le=100)
     diagnosis: str
     suggestion: str = ""
 
@@ -825,27 +825,23 @@ def build_system_prompt() -> str:
 
 JSON 必须严格包含：
 {
-  "score_model":"通用证据链评分模型 v1",
-  "position_type":"识别到的岗位大类，如产品经理/AI 产品经理/运营/增长/商业化/数据分析/通用岗位",
-  "confidence_label":"高/中/低",
-  "confidence_reason":"为什么本次评分可信或不够可信",
   "dimensions": [
-    {"name":"核心能力匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"经历证据强度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"业务场景匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"结果量化程度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"角色责任匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
-    {"name":"关键词与表达","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
+    {"name":"核心能力匹配","value":0到100整数,"note":"评分依据"},
+    {"name":"经历证据强度","value":0到100整数,"note":"评分依据"},
+    {"name":"业务场景匹配","value":0到100整数,"note":"评分依据"},
+    {"name":"结果量化程度","value":0到100整数,"note":"评分依据"},
+    {"name":"角色责任匹配","value":0到100整数,"note":"评分依据"},
+    {"name":"关键词与表达","value":0到100整数,"note":"评分依据"}
   ],
-  "summary":"申请建议的核心判断，2到3句",
-  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须与本条匹配判断一一对应；有证据时指出改哪句，无直接证据时只能建议核实现有经历或补充真实项目，不得暗示编造经历"}],
+  "summary":"申请建议的核心判断",
+  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须与本条匹配判断一一对应；有证据时指出改哪句，无直接证据时只能建议核实现有经历或补充真实项目，不得暗示编造经历"}],
   "gaps":[{"level":"高/中/低","title":"缺口标题","desc":"具体说明"}],
   "actions":[{"title":"行动标题","desc":"可执行步骤","effort":"预计时间"}],
   "rewrites":[{"before":"简历逐字原文","after":"基于同一事实的建议表达"}],
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 3 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖与数据结果，并直接使用面试官提问口吻，不要出现“如果面试官追问”“你会如何说明”之类的转述句式。summary 不超过 60 个中文字符；dimension 的 note、单条 bonus_evidence、deduction_reason、remedy 各不超过 22 个中文字符；evidence 的 proof、diagnosis、suggestion 各不超过 35 个中文字符；gaps、actions、rewrites 的说明各不超过 35 个中文字符。避免重复解释。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 3 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖与数据结果，并直接使用面试官提问口吻。summary 不超过 50 个中文字符；dimension 的 note 不超过 18 个中文字符；evidence 的 proof、diagnosis、suggestion 各不超过 30 个中文字符；gaps、actions、rewrites 的说明各不超过 30 个中文字符。避免重复解释。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -986,7 +982,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         "model": model_name(),
         "messages": messages,
         "temperature": 0,
-        "max_tokens": 2800,
+        "max_tokens": 2200,
         "enable_thinking": False,
         "stream": False,
     }
