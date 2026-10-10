@@ -41,6 +41,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const HISTORY_KEY = 'eviden.analysis.history.v1';
 const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
 const AUTH_USER_KEY = 'eviden.auth.user.v1';
+const DELETED_REPORTS_KEY = 'eviden.deleted.reports.v1';
 
 function getStoredHistory() {
   try {
@@ -53,6 +54,21 @@ function getStoredHistory() {
 
 function persistHistory(records) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, 30)));
+}
+
+function getDeletedReportIds() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(DELETED_REPORTS_KEY) || '[]');
+    return new Set(Array.isArray(ids) ? ids : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markReportDeleted(id) {
+  const ids = getDeletedReportIds();
+  ids.add(id);
+  localStorage.setItem(DELETED_REPORTS_KEY, JSON.stringify(Array.from(ids).slice(-100)));
 }
 
 function getStoredUser() {
@@ -93,6 +109,19 @@ const authMe = (token) => apiJson('/api/auth/me', { token });
 const fetchCloudReports = (token) => apiJson('/api/reports', { token });
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+const deleteCloudReportWithRetry = async (token, id) => {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await deleteCloudReport(token, id);
+    } catch (error) {
+      lastError = error;
+      if (error.status === 401) throw error;
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+};
 
 function shortText(text, length = 82) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
@@ -641,10 +670,13 @@ function ComparePage({ records, onBack, onView }) {
 }
 
 function mergeHistory(localRecords, cloudReports) {
+  const deletedIds = getDeletedReportIds();
   const byId = new Map();
-  localRecords.forEach(record => byId.set(record.id, record));
+  localRecords.forEach(record => {
+    if (!deletedIds.has(record.id)) byId.set(record.id, record);
+  });
   cloudReports.forEach(item => {
-    if (item.record?.id) byId.set(item.record.id, item.record);
+    if (item.record?.id && !deletedIds.has(item.record.id)) byId.set(item.record.id, item.record);
   });
   return Array.from(byId.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 30);
 }
@@ -762,10 +794,11 @@ function App() {
   };
 
   const deleteRecord = id => {
+    markReportDeleted(id);
     const nextHistory = history.filter(item => item.id !== id);
     setHistory(nextHistory);
     persistHistory(nextHistory);
-    if (token) deleteCloudReport(token, id).catch(err => console.warn('delete cloud report failed', err));
+    if (token) deleteCloudReportWithRetry(token, id).catch(err => console.warn('delete cloud report failed after retries', err));
   };
 
   const viewRecord = record => {
