@@ -256,6 +256,11 @@ class ResumeParseResponse(BaseModel):
     preview: str
 
 
+class ResumeParseJsonRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    content_base64: str = Field(..., min_length=1)
+
+
 def database_url() -> str:
     explicit_url = DATABASE_URL or read_local_secret("DATABASE_URL") or read_config_module("DATABASE_URL")
     if explicit_url:
@@ -1240,10 +1245,7 @@ async def health_handler():
     )
 
 
-@app.post("/api/parse-resume", response_model=ResumeParseResponse)
-async def parse_resume_handler(file: UploadFile = File(...)):
-    filename = file.filename or "resume"
-    content = await file.read()
+async def parse_resume_content(filename: str, content: bytes) -> ResumeParseResponse:
     if len(content) > 8 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件过大，请上传 8MB 以内的简历。")
     try:
@@ -1264,6 +1266,21 @@ async def parse_resume_handler(file: UploadFile = File(...)):
         char_count=len(text),
         preview=text[:260],
     )
+
+
+@app.post("/api/parse-resume", response_model=ResumeParseResponse)
+async def parse_resume_handler(file: UploadFile = File(...)):
+    filename = file.filename or "resume"
+    return await parse_resume_content(filename, await file.read())
+
+
+@app.post("/api/parse-resume-json", response_model=ResumeParseResponse)
+async def parse_resume_json_handler(request: ResumeParseJsonRequest):
+    try:
+        content = base64.b64decode(request.content_base64, validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="简历文件读取失败，请重新选择文件。")
+    return await parse_resume_content(request.filename, content)
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)

@@ -262,12 +262,29 @@ async function requestAnalysis({ resume, jd, target, company, businessUnit }) {
 }
 
 async function requestResumeParse(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const response = await fetch(`${API_BASE_URL}/api/parse-resume`, {
-    method: 'POST',
-    body: formData,
+  if (file.size > 8 * 1024 * 1024) throw new Error('文件过大，请上传 8MB 以内的简历。');
+  const contentBase64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').split(',', 2)[1] || '');
+    reader.onerror = () => reject(new Error('简历文件读取失败，请重新选择文件。'));
+    reader.readAsDataURL(file);
   });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 90000);
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/parse-resume-json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, content_base64: contentBase64 }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('简历解析超时，请重新上传或换一个文件重试。');
+    throw new Error('简历上传失败，请检查网络后重试。');
+  } finally {
+    window.clearTimeout(timer);
+  }
 
   if (!response.ok) {
     let message = '简历解析失败，请换一个文件重试。';
@@ -579,7 +596,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     } catch (err) {
       setParseStatus(previousResume ? 'success' : 'error');
       setParseMessage(previousResume ? '仍在使用原默认简历' : (err.message || '简历解析失败，请换一个文件重试。'));
-      setResumeSyncMessage(previousResume ? `更换失败：${err.message || '请换一个文件重试'}` : '支持 PDF / DOCX');
+      setResumeSyncMessage(previousResume ? `更换失败：${err.message || '请换一个文件重试'}` : '');
       setResumeFile(null);
     } finally {
       event.target.value = '';
@@ -647,8 +664,8 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
         </div> : <label className={`resume-upload-zone ${parseStatus}`}>
           <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'} />
           <UploadCloud size={34}/>
-          <b>{resumeFile ? resumeFile.name : '上传一份简历'}</b>
-          <p>{parseStatus === 'parsing' ? parseMessage : '支持 PDF / DOCX'}</p>
+          <b>{resumeFile ? resumeFile.name : '上传简历'}</b>
+          <p>{parseStatus === 'parsing' || parseStatus === 'error' ? parseMessage : '支持 PDF / DOCX'}</p>
           {resumeSyncMessage && parseStatus !== 'parsing' && <small>{resumeSyncMessage}</small>}
         </label>}
       </div>
