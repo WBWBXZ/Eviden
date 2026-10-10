@@ -676,7 +676,7 @@ function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
 
   return <section className="workspace history-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比岗位（{selectedRecords.length}）</button></div></nav>
-    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>岗位记录</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
+    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>我的报告</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
     {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里</p></div> : <div className="history-grid">
       {records.map(record => <article className="history-card editorial-card" key={record.id}>
         <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label>
