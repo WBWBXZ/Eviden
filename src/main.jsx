@@ -548,7 +548,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
     <div className="result-grid result-grid-v2">
       <main className="result-main">
         <div className="panel editorial-card score-explain">
-          <div className="panel-head"><div><b>匹配分拆解</b></div><span>维度权重</span></div>
+          <div className="panel-head"><div><b>匹配评分依据</b></div><span>维度权重</span></div>
           <div className="score-table">
             {result.dimensions.map(item => <div className="score-row" key={item.name}>
               <div className="score-name"><b>{item.name}</b><span>权重 {item.weight}%</span></div>
@@ -569,16 +569,16 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
           </article>)}
         </div>
 
-        <div className="panel compact editorial-card result-gaps"><div className="panel-head"><b>优先补齐的缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
+        <div className="panel compact editorial-card result-gaps"><div className="panel-head"><b>关键能力缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
 
         <div className="panel editorial-card action-plan-v2">
-          <div className="panel-head"><div><b>投递前优先行动</b></div><span>优先级 {result.priority}</span></div>
+          <div className="panel-head"><div><b>投递前行动清单</b></div><span>优先级 {result.priority}</span></div>
           <div className="action-list-v2">{result.actions.map((item, index) => <div key={item.title}><span>0{index + 1}</span><section><b>{trimUiEnd(item.title)}</b><p>{trimUiEnd(item.desc)}</p></section><em>{item.effort}</em></div>)}</div>
         </div>
 
-        <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历改写建议</b></div><span>{reportRewrites(result).length} 条高优先级</span></div>{reportRewrites(result).map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{trimUiEnd(r.before)}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{trimUiEnd(r.after)}</p></div></div>)}</div>
+        <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历表达优化</b></div><span>{reportRewrites(result).length} 条高优先级</span></div>{reportRewrites(result).map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{trimUiEnd(r.before)}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{trimUiEnd(r.after)}</p></div></div>)}</div>
 
-        <div className="panel compact editorial-card question-panel result-questions"><div className="panel-head"><b>面试追问压力测试</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
+        <div className="panel compact editorial-card question-panel result-questions"><div className="panel-head"><b>面试重点追问</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
 
         <div className="decision-card result-next-step"><small>下一步</small><h3>先补强证据，再提交申请</h3><p>报告已保存，可继续分析其他岗位，再进入多岗位对比看投递优先级</p><button className="primary" onClick={onCompare}>加入多岗位对比</button></div>
       </main>
