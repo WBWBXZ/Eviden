@@ -562,7 +562,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
           <div className="panel-head"><div><b>JD 要求与简历证据</b><p>逐项查看岗位要求、已有证据和最终判断</p></div><span>逐条核对</span></div>
           {result.evidence.map((item, index) => <article className="evidence-card-v2 evidence-card-clean" key={item.req}>
             <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
-            <div className="evidence-compare-grid">
+            <div className={`evidence-compare-grid ${String(item.resumeQuote || '').length < 120 ? 'short-evidence' : ''}`}>
               <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
               <section className="evidence-verdict"><div className="verdict-copy"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p>{evidenceAction(item) && <div className="evidence-action"><label>具体调整建议</label><p>{evidenceAction(item)}</p></div>}</div></section>
             </div>
