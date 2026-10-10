@@ -47,7 +47,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     db_password = quote(os.getenv("SUPABASE_DB_PASSWORD", ""), safe="")
     db_host = os.getenv("SUPABASE_DB_HOST", "db.fjuiloufsrvewjlvijys.supabase.co")
-    DATABASE_URL = f"postgresql://postgres:{db_password}@{db_host}:5432/postgres"
+    db_user = quote(os.getenv("SUPABASE_DB_USER", "postgres"), safe="")
+    DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
 DIMENSION_WEIGHTS = {
@@ -263,7 +264,8 @@ def database_url() -> str:
     if not db_password:
         return ""
     db_host = get_secret("SUPABASE_DB_HOST") or "db.fjuiloufsrvewjlvijys.supabase.co"
-    return "postgresql://postgres:{0}@{1}:5432/postgres".format(quote(db_password, safe=""), db_host)
+    db_user = get_secret("SUPABASE_DB_USER") or "postgres"
+    return "postgresql://{0}:{1}@{2}:5432/postgres".format(quote(db_user, safe=""), quote(db_password, safe=""), db_host)
 
 
 def use_postgres() -> bool:
