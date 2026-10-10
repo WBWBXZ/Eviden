@@ -495,6 +495,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
       })
       .catch(err => {
         window.clearTimeout(syncTimer);
+        if (resumeMutationRef.current !== mutationAtStart) return;
         if (err.name === 'AbortError' && !syncTimedOut) return;
         setResumeSyncMessage(cachedAtStart
           ? '云端同步暂时失败，已保留本机默认简历'
