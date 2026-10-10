@@ -287,3 +287,6 @@
   .preview-table div,.mock-evidence-list div{grid-template-columns:1fr}
   .nav.in-app .nav-actions,.history-actions,.loading-steps{grid-template-columns:1fr}
 }
+
+/* Keep evidence judgment and its adjustment advice on the same content edge. */
+.evidence-verdict .verdict-copy>.evidence-action{padding:16px 0 0!important;margin-top:18px!important}

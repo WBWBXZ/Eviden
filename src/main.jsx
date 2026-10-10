@@ -249,11 +249,15 @@ function formatDate(value) {
 async function requestModelJson(path, body, fallbackMessage) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const attemptStartedAt = Date.now();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 65000);
     try {
       const response = await fetch(`${API_BASE_URL}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
       if (response.ok) return response.json();
 
@@ -269,11 +273,14 @@ async function requestModelJson(path, body, fallbackMessage) {
       if (![502, 504].includes(response.status) || attempt === 1) throw error;
       lastError = error;
     } catch (error) {
-      if (error.status || attempt === 1) {
-        if (!error.status) throw new Error('网络连接暂时不稳定，请重新生成。');
+      const requestRanLong = Date.now() - attemptStartedAt > 30000;
+      if (error.status || attempt === 1 || requestRanLong) {
+        if (!error.status) throw new Error('生成服务连接超时，请重新生成。');
         throw error;
       }
       lastError = error;
+    } finally {
+      window.clearTimeout(timer);
     }
     await new Promise(resolve => setTimeout(resolve, 800));
   }
