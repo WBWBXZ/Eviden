@@ -51,9 +51,6 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
-_ANALYSIS_CACHE: Dict[str, tuple] = {}
-_ANALYSIS_CACHE_TTL_SECONDS = 60 * 60 * 6
-_ANALYSIS_CACHE_MAX_ITEMS = 64
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -195,7 +192,7 @@ class Evidence(BaseModel):
     proof: str
     resumeQuote: str
     level: str
-    confidence: int = Field(60, ge=0, le=100)
+    confidence: int = Field(..., ge=0, le=100)
     diagnosis: str
     suggestion: str = ""
 
@@ -811,7 +808,6 @@ def build_system_prompt() -> str:
 9. 每个维度必须给出加分证据、扣分原因和补救建议，让用户能判断分数是否合理。
 10. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
 11. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
-12. evidence 中每一项的 proof、diagnosis 和 suggestion 必须围绕同一条 JD 要求、同一份简历证据得出，调整建议不得跳到其他能力或凭空新增项目。
 
 通用评分标准：
 - 核心能力匹配 30%：JD 最关键的能力要求，简历里是否有直接对应的经历、技能和项目证据。
@@ -828,6 +824,10 @@ def build_system_prompt() -> str:
 
 JSON 必须严格包含：
 {
+  "score_model":"通用证据链评分模型 v1",
+  "position_type":"识别到的岗位大类，如产品经理/AI 产品经理/运营/增长/商业化/数据分析/通用岗位",
+  "confidence_label":"高/中/低",
+  "confidence_reason":"为什么本次评分可信或不够可信",
   "dimensions": [
     {"name":"核心能力匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
     {"name":"经历证据强度","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
@@ -836,15 +836,15 @@ JSON 必须严格包含：
     {"name":"角色责任匹配","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"},
     {"name":"关键词与表达","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
   ],
-  "summary":"申请建议的核心判断",
-  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须与本条匹配判断一一对应；有证据时指出改哪句，无直接证据时只能建议核实现有经历或补充真实项目，不得暗示编造经历"}],
+  "summary":"申请建议的核心判断，2到3句",
+  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须同时结合该条JD原文和简历证据，指出具体改哪句话、补哪项事实或如何改写；无法给出具体动作时留空"}],
   "gaps":[{"level":"高/中/低","title":"缺口标题","desc":"具体说明"}],
   "actions":[{"title":"行动标题","desc":"可执行步骤","effort":"预计时间"}],
   "rewrites":[{"before":"简历逐字原文","after":"基于同一事实的建议表达"}],
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻。summary 用 2–3 句话表达；dimension 的 note、单条 bonus_evidence、deduction_reason、remedy 各不超过 35 个中文字符；evidence 的 proof、diagnosis、suggestion 各不超过 55 个中文字符；gaps、actions、rewrites 的说明各不超过 55 个中文字符。不得省略评分依据、加分证据、扣分原因、补救建议、证据核对、缺口、行动建议、改写或面试问题。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻，不要出现“如果面试官追问”“你会如何说明”之类的转述句式。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -960,7 +960,7 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
         gaps=payload.gaps[:3],
         actions=payload.actions[:3],
         rewrites=payload.rewrites[:3],
-        questions=payload.questions[:5],
+        questions=payload.questions[:3],
         score_model=payload.score_model,
         position_type=payload.position_type,
         confidence_label=payload.confidence_label if payload.confidence_label in ("高", "中", "低") else "中",
@@ -968,35 +968,7 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
     )
 
 
-def analysis_cache_key(request: AnalyzeRequest) -> str:
-    payload = json.dumps(request.dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256((model_name() + "\n" + payload).encode("utf-8")).hexdigest()
-
-
-def get_cached_analysis(cache_key: str) -> Optional[AnalysisPayload]:
-    cached = _ANALYSIS_CACHE.get(cache_key)
-    if not cached:
-        return None
-    created_at, payload = cached
-    if time.time() - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
-        _ANALYSIS_CACHE.pop(cache_key, None)
-        return None
-    return AnalysisPayload.parse_obj(payload)
-
-
-def cache_analysis(cache_key: str, payload: AnalysisPayload) -> None:
-    if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_ITEMS:
-        oldest_key = min(_ANALYSIS_CACHE, key=lambda key: _ANALYSIS_CACHE[key][0])
-        _ANALYSIS_CACHE.pop(oldest_key, None)
-    _ANALYSIS_CACHE[cache_key] = (time.time(), payload.dict())
-
-
 async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
-    cache_key = analysis_cache_key(request)
-    cached = get_cached_analysis(cache_key)
-    if cached is not None:
-        return cached
-
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
@@ -1037,9 +1009,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
                 raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, detail))
             response_data = response.json()
             content = response_data["choices"][0]["message"]["content"]
-            result = AnalysisPayload.parse_obj(extract_json(content))
-            cache_analysis(cache_key, result)
-            return result
+            return AnalysisPayload.parse_obj(extract_json(content))
         except Exception as error:
             last_error = error
             LOGGER.warning("AI analysis attempt failed: %s", error)
