@@ -918,14 +918,14 @@ function ComparePage({ records, onBack, onView }) {
   const compared = records.slice(0, 4);
   return <section className="workspace compare-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回我的报告</button></div></nav>
-    <div className="page-head"><div><small>OPPORTUNITY COMPARISON / 机会对比</small><h2>找到最值得投入的机会</h2><p>把岗位匹配度、关键证据与准备成本放在一起，明确投递顺序</p></div></div>
+    <div className="page-head"><div><small>ROLE COMPARISON / 多岗位对比</small><h2>选择，更有依据</h2><p>横向对比岗位匹配度、主要优势与关键缺口，明确投递优先级</p></div></div>
     {compared.length < 2 ? <div className="empty-state editorial-card"><b>还需要选择岗位</b><p>从「我的报告」中选择 2–4 个岗位进行对比</p></div> : <div className="compare-grid">
       {compared.map(record => <article className="compare-card editorial-card" key={record.id}>
         <div className="compare-score"><span>{record.target}</span><b>{record.result.score}</b><em>{record.result.action}</em></div>
-        <div className="compare-section"><label>匹配亮点</label><p>{record.result.evidence?.[0]?.proof || record.result.summary}</p></div>
+        <div className="compare-section"><label>主要优势</label><p>{record.result.evidence?.[0]?.proof || record.result.summary}</p></div>
         <div className="compare-section"><label>关键缺口</label><p>{record.result.gaps?.[0]?.title}：{record.result.gaps?.[0]?.desc}</p></div>
         <div className="compare-section"><label>准备重点</label><p>{record.result.actions?.[0]?.title}｜{record.result.actions?.[0]?.effort}</p></div>
-        <button className="secondary full" onClick={() => onView(record)}>查看岗位报告</button>
+        <button className="secondary full" onClick={() => onView(record)}>查看完整报告</button>
       </article>)}
     </div>}
   </section>;
