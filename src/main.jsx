@@ -232,7 +232,13 @@ function makeHistoryRecord(result, input) {
 }
 
 function formatDate(value) {
-  return new Date(value).toLocaleString('zh-CN', {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  const normalizedValue = Number.isFinite(numericValue) && numericValue > 0 && numericValue < 1e12
+    ? numericValue * 1000
+    : value;
+  const date = new Date(normalizedValue);
+  if (Number.isNaN(date.getTime())) return '时间未知';
+  return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -240,25 +246,48 @@ function formatDate(value) {
   });
 }
 
-async function requestAnalysis({ resume, jd, target, company, businessUnit }) {
-  const response = await fetch(`${API_BASE_URL}/api/analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, jd, target, company, business_unit: businessUnit }),
-  });
-
-  if (!response.ok) {
-    let message = '分析失败，请稍后重试。';
+async function requestModelJson(path, body, fallbackMessage) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const data = await response.json();
-      message = typeof data.detail === 'string' ? data.detail : message;
-    } catch {
-      // Keep the generic message when the backend does not return JSON.
-    }
-    throw new Error(message);
-  }
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (response.ok) return response.json();
 
-  return response.json();
+      let message = fallbackMessage;
+      try {
+        const data = await response.json();
+        message = typeof data.detail === 'string' ? data.detail : message;
+      } catch {
+        // Keep the user-facing fallback when the backend does not return JSON.
+      }
+      const error = new Error(message);
+      error.status = response.status;
+      if (![502, 504].includes(response.status) || attempt === 1) throw error;
+      lastError = error;
+    } catch (error) {
+      if (error.status || attempt === 1) {
+        if (!error.status) throw new Error('网络连接暂时不稳定，请重新生成。');
+        throw error;
+      }
+      lastError = error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+  throw lastError || new Error(fallbackMessage);
+}
+
+async function requestAnalysis({ resume, jd, target, company, businessUnit }) {
+  return requestModelJson('/api/analyze', {
+    resume,
+    jd,
+    target,
+    company,
+    business_unit: businessUnit,
+  }, '分析失败，请稍后重试。');
 }
 
 async function requestResumeParse(file) {
@@ -301,24 +330,13 @@ async function requestResumeParse(file) {
 }
 
 async function requestResumeRewrite({ resume, target, jd, company, businessUnit }) {
-  const response = await fetch(`${API_BASE_URL}/api/rewrite-resume`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resume, target, jd, company, business_unit: businessUnit }),
-  });
-
-  if (!response.ok) {
-    let message = '简历优化失败，请稍后重试。';
-    try {
-      const data = await response.json();
-      message = typeof data.detail === 'string' ? data.detail : message;
-    } catch {
-      // Keep the generic message when the backend does not return JSON.
-    }
-    throw new Error(message);
-  }
-
-  return response.json();
+  return requestModelJson('/api/rewrite-resume', {
+    resume,
+    target,
+    jd,
+    company,
+    business_unit: businessUnit,
+  }, '简历优化失败，请稍后重试。');
 }
 
 function Brand() {
@@ -661,7 +679,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
             <label className="secondary resume-change-action"><input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'} />{parseStatus === 'parsing' ? '正在更换…' : '更换简历'}</label>
             <button className="secondary danger" onClick={() => setRemoveConfirm(true)} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'}>移除默认简历</button>
           </div>
-          <p className="resume-replace-note">更换只影响后续分析；历史报告仍保留当时使用的简历快照。</p>
+          <p className="resume-replace-note">更换只影响后续分析；历史报告仍保留当时使用的简历快照</p>
         </div> : <label className={`resume-upload-zone ${parseStatus}`}>
           <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'} />
           <UploadCloud size={34}/>
