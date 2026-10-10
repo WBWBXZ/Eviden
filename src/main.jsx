@@ -358,7 +358,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [resumePreview, setResumePreview] = useState('');
   const [parseStatus, setParseStatus] = useState('idle');
-  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX；扫描版 PDF 会自动尝试 AI OCR');
+  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX');
   const [jd, setJd] = useState('');
   const [target, setTarget] = useState('');
   const [company, setCompany] = useState('');
@@ -446,7 +446,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setResumePreview('');
     setRewrite(null);
     setParseStatus('idle');
-    setParseMessage('支持 PDF / DOCX，建议上传可复制文本的简历');
+    setParseMessage('支持 PDF / DOCX');
   };
 
   const canSubmit = !loading && !rewriteLoading && parseStatus === 'success' && resume.trim().length >= 80 && target.trim().length >= 2 && jd.trim().length >= 50;
