@@ -260,7 +260,30 @@ function AuthModal({ onClose, onSuccess }) {
   </div>;
 }
 
-function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout }) {
+function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onViewLatest, onAuth, onLogout }) {
+  const latestResult = latestReport?.result;
+  const isRealReport = Boolean(user && latestReport && latestResult);
+  const matchedEvidence = latestResult?.evidence?.find(item => item.resumeQuote && item.resumeQuote !== '无直接证据');
+  const preview = isRealReport ? {
+    resume: latestReport.resumeName || latestResult.resumeName || '当前上传简历',
+    target: latestReport.target || latestResult.jdName || '目标岗位',
+    score: latestResult.score,
+    decision: trimUiEnd(latestResult.action),
+    summary: shortText(trimUiEnd(latestResult.summary), 66),
+    evidence: shortText(trimUiEnd(matchedEvidence?.resumeQuote || matchedEvidence?.req || '查看报告中的完整证据'), 34),
+    gap: shortText(trimUiEnd(latestResult.gaps?.[0]?.title || '暂无明显缺口'), 28),
+    action: shortText(trimUiEnd(latestResult.actions?.[0]?.title || '查看完整行动建议'), 28),
+  } : {
+    resume: 'AI 产品方向简历.pdf',
+    target: 'AI 产品经理实习生',
+    score: 78,
+    decision: '补充准备后投递',
+    summary: '优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达',
+    evidence: 'AI Agent / Prompt / 工作流迭代',
+    gap: 'SQL、用户研究、结果量化',
+    action: '改写简历主线，准备追问案例',
+  };
+
   return <section className="landing product-home refined-home">
     <nav className="nav product-nav">
       <Brand />
@@ -286,20 +309,24 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
         </div>
       </div>
 
-      <div className="product-mock refined-mock" aria-label="Eviden 样例报告预览">
-        <div className="mock-window-bar"><span></span><span></span><span></span></div>
+      <div className="product-mock refined-mock" aria-label={isRealReport ? '最近一次岗位匹配报告' : 'Eviden 报告示例'}>
+        <div className="mock-window-bar">
+          <div className="mock-window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+          <b>{isRealReport ? '最近分析' : '报告示例'}</b>
+          {isRealReport && <button className="mock-report-action" onClick={() => onViewLatest(latestReport)}>查看完整报告 <ArrowRight size={14}/></button>}
+        </div>
         <div className="match-pair">
-          <div><label>当前简历</label><strong>AI 产品方向简历.pdf</strong></div>
-          <div><label>目标岗位</label><strong>AI 产品经理实习生</strong></div>
+          <div><label>当前简历</label><strong>{preview.resume}</strong></div>
+          <div><label>目标岗位</label><strong>{preview.target}</strong></div>
         </div>
         <div className="report-preview">
-          <div className="preview-score"><label>岗位匹配结果</label><strong>78</strong><span>综合匹配分</span></div>
-          <div className="preview-summary"><label>投递建议</label><b>补充准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达</p></div>
+          <div className="preview-score"><label>岗位匹配结果</label><strong>{preview.score}</strong><span>综合匹配分</span></div>
+          <div className="preview-summary"><label>投递建议</label><b>{preview.decision}</b><p>{preview.summary}</p></div>
         </div>
         <div className="preview-table">
-          <div><span>已有证据</span><b>AI Agent / Prompt / 工作流迭代</b></div>
-          <div><span>关键缺口</span><b>SQL、用户研究、结果量化</b></div>
-          <div><span>优先行动</span><b>改写简历主线，准备追问案例</b></div>
+          <div><span>已有证据</span><b>{preview.evidence}</b></div>
+          <div><span>关键缺口</span><b>{preview.gap}</b></div>
+          <div><span>优先行动</span><b>{preview.action}</b></div>
         </div>
       </div>
     </div>
@@ -821,7 +848,7 @@ function App() {
   };
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
-  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
