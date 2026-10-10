@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowRight,
@@ -43,6 +43,46 @@ const HISTORY_OWNER_KEY = 'eviden.analysis.history.owner.v1';
 const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
 const AUTH_USER_KEY = 'eviden.auth.user.v1';
 const DELETED_REPORTS_KEY = 'eviden.deleted.reports.v1';
+const DEFAULT_RESUME_KEY_PREFIX = 'eviden.default-resume.v1';
+
+function defaultResumeCacheKey(userId) {
+  return `${DEFAULT_RESUME_KEY_PREFIX}.${encodeURIComponent(String(userId))}`;
+}
+
+function normalizeDefaultResume(value) {
+  if (!value || typeof value !== 'object' || !String(value.resume_text || '').trim()) return null;
+  const resumeText = String(value.resume_text);
+  return {
+    filename: String(value.filename || '默认简历'),
+    resume_text: resumeText,
+    char_count: Number(value.char_count) || resumeText.length,
+    preview: String(value.preview || shortText(resumeText, 240)),
+    updated_at: value.updated_at || new Date().toISOString(),
+  };
+}
+
+function defaultResumeUpdatedAtMs(resume) {
+  const value = resume?.updated_at;
+  if (typeof value === 'number') return value < 1e12 ? value * 1000 : value;
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getCachedDefaultResume(userId) {
+  if (!userId) return null;
+  try {
+    return normalizeDefaultResume(JSON.parse(localStorage.getItem(defaultResumeCacheKey(userId)) || 'null'));
+  } catch {
+    return null;
+  }
+}
+
+function persistDefaultResume(userId, resume) {
+  if (!userId) return;
+  const key = defaultResumeCacheKey(userId);
+  if (resume) localStorage.setItem(key, JSON.stringify(resume));
+  else localStorage.removeItem(key);
+}
 
 function getStoredHistory() {
   try {
@@ -109,7 +149,9 @@ async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  if (response.status === 204) return null;
+  const responseText = await response.text();
+  return responseText ? JSON.parse(responseText) : null;
 }
 
 const authLogin = (payload) => apiJson('/api/auth/login', { method: 'POST', body: payload });
@@ -129,6 +171,13 @@ const fetchCloudReports = async (token) => {
 };
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+const fetchDefaultResume = (token, signal) => apiJson('/api/default-resume', { token, signal });
+const saveDefaultResume = (token, resume) => apiJson('/api/default-resume', {
+  method: 'PUT',
+  token,
+  body: { filename: resume.filename, resume_text: resume.resume_text },
+});
+const deleteDefaultResume = (token) => apiJson('/api/default-resume', { method: 'DELETE', token });
 const deleteCloudReportWithRetry = async (token, id) => {
   let lastError;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -353,12 +402,19 @@ function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onV
   </section>;
 }
 
-function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
-  const [resume, setResume] = useState('');
+function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
+  const cachedResume = getCachedDefaultResume(user?.id);
+  const [resume, setResume] = useState(() => cachedResume?.resume_text || '');
   const [resumeFile, setResumeFile] = useState(null);
-  const [resumePreview, setResumePreview] = useState('');
-  const [parseStatus, setParseStatus] = useState('idle');
-  const [parseMessage, setParseMessage] = useState('支持 PDF / DOCX');
+  const [resumeFileName, setResumeFileName] = useState(() => cachedResume?.filename || '');
+  const [resumePreview, setResumePreview] = useState(() => cachedResume?.preview || '');
+  const [resumeUpdatedAt, setResumeUpdatedAt] = useState(() => cachedResume?.updated_at || '');
+  const [parseStatus, setParseStatus] = useState(() => cachedResume ? 'success' : 'idle');
+  const [parseMessage, setParseMessage] = useState(() => cachedResume ? `已缓存 ${cachedResume.char_count} 个字符` : '支持 PDF / DOCX');
+  const [resumeSyncMessage, setResumeSyncMessage] = useState(cachedResume ? '正在同步云端默认简历…' : '');
+  const [removeConfirm, setRemoveConfirm] = useState(false);
+  const [removeLoading, setRemoveLoading] = useState(false);
+  const resumeMutationRef = useRef(0);
   const [jd, setJd] = useState('');
   const [target, setTarget] = useState('');
   const [company, setCompany] = useState('');
@@ -367,6 +423,50 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [rewrite, setRewrite] = useState(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!token || !user?.id) return undefined;
+    const controller = new AbortController();
+    const mutationAtStart = resumeMutationRef.current;
+    const cachedAtStart = getCachedDefaultResume(user.id);
+    const applyResume = (nextResume, message) => {
+      persistDefaultResume(user.id, nextResume);
+      setResume(nextResume?.resume_text || '');
+      setResumeFile(null);
+      setResumeFileName(nextResume?.filename || '');
+      setResumePreview(nextResume?.preview || '');
+      setResumeUpdatedAt(nextResume?.updated_at || '');
+      setParseStatus(nextResume ? 'success' : 'idle');
+      setParseMessage(nextResume ? `已同步 ${nextResume.char_count} 个字符` : '支持 PDF / DOCX');
+      setResumeSyncMessage(message);
+    };
+    setResumeSyncMessage(cachedAtStart ? '正在同步云端默认简历…' : '正在查找云端默认简历…');
+    fetchDefaultResume(token, controller.signal)
+      .then(async data => {
+        if (resumeMutationRef.current !== mutationAtStart) return;
+        const cloudResume = normalizeDefaultResume(data?.resume);
+        const keepLocal = cachedAtStart && (!cloudResume || defaultResumeUpdatedAtMs(cachedAtStart) > defaultResumeUpdatedAtMs(cloudResume));
+        if (keepLocal) {
+          applyResume(cachedAtStart, '正在将本机默认简历同步到云端…');
+          try {
+            const saved = await saveDefaultResume(token, cachedAtStart);
+            if (resumeMutationRef.current !== mutationAtStart) return;
+            applyResume(normalizeDefaultResume(saved?.resume || saved) || cachedAtStart, '已与云端同步');
+          } catch {
+            if (resumeMutationRef.current === mutationAtStart) setResumeSyncMessage('云端同步暂时失败，已保留本机默认简历');
+          }
+          return;
+        }
+        applyResume(cloudResume, cloudResume ? '已与云端同步' : '当前账号还没有默认简历，请上传一份');
+      })
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+        setResumeSyncMessage(cachedAtStart
+          ? '云端同步暂时失败，已保留本机默认简历'
+          : '云端同步暂时失败，你仍可上传并使用简历');
+      });
+    return () => controller.abort();
+  }, [token, user?.id]);
 
   const submit = async () => {
     if (loading || parseStatus === 'parsing') return;
@@ -386,7 +486,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
     setError('');
     try {
       const result = await requestAnalysis({ resume, jd, target, company, businessUnit });
-      onAnalyze(result, { resume, jd, target, company, businessUnit, resumeFileName: resumeFile?.name });
+      onAnalyze(result, { resume, jd, target, company, businessUnit, resumeFileName: resumeFileName || resumeFile?.name });
     } catch (err) {
       setError(err.message || '分析失败，请稍后重试。');
     } finally {
@@ -419,34 +519,75 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   const handleResumeUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    resumeMutationRef.current += 1;
+    const previousResume = resume;
     setError('');
     setRewrite(null);
-    setResume('');
-    setResumePreview('');
     setResumeFile(file);
     setParseStatus('parsing');
     setParseMessage('正在解析简历文件，扫描版 PDF 可能需要更久…');
+    setResumeSyncMessage('解析成功后会替换当前默认简历');
     try {
       const parsed = await requestResumeParse(file);
-      setResume(parsed.text || '');
-      setResumePreview(parsed.preview || '');
+      const nextResume = normalizeDefaultResume({
+        filename: file.name,
+        resume_text: parsed.text,
+        char_count: parsed.char_count,
+        preview: parsed.preview,
+        updated_at: new Date().toISOString(),
+      });
+      if (!nextResume) throw new Error('没有从文件中解析出可用文本，请换一个文件重试。');
+      setResume(nextResume.resume_text);
+      setResumeFileName(nextResume.filename);
+      setResumePreview(nextResume.preview);
+      setResumeUpdatedAt(nextResume.updated_at);
       setParseStatus('success');
-      setParseMessage(`已解析 ${parsed.char_count || 0} 个字符，可以生成报告`);
+      setParseMessage(`已解析 ${nextResume.char_count} 个字符，可以生成报告`);
+      setResumeSyncMessage('已替换本机默认简历，正在保存到云端…');
+      persistDefaultResume(user?.id, nextResume);
+      try {
+        const saved = await saveDefaultResume(token, nextResume);
+        const cloudResume = normalizeDefaultResume(saved?.resume || saved) || nextResume;
+        persistDefaultResume(user?.id, cloudResume);
+        setResumeUpdatedAt(cloudResume.updated_at);
+        setResumePreview(cloudResume.preview);
+        setResumeSyncMessage('已保存为当前账号的默认简历');
+      } catch (syncError) {
+        setResumeSyncMessage('云端保存暂时失败，已保留本机默认简历；下次更换时可重试');
+      }
     } catch (err) {
-      setParseStatus('error');
-      setParseMessage(err.message || '简历解析失败，请换一个文件重试。');
+      setParseStatus(previousResume ? 'success' : 'error');
+      setParseMessage(previousResume ? '仍在使用原默认简历' : (err.message || '简历解析失败，请换一个文件重试。'));
+      setResumeSyncMessage(previousResume ? `更换失败：${err.message || '请换一个文件重试'}` : '支持 PDF / DOCX');
       setResumeFile(null);
+    } finally {
       event.target.value = '';
     }
   };
 
-  const resetResume = () => {
-    setResume('');
-    setResumeFile(null);
-    setResumePreview('');
-    setRewrite(null);
-    setParseStatus('idle');
-    setParseMessage('支持 PDF / DOCX');
+  const removeResume = async () => {
+    if (removeLoading || !resume) return;
+    resumeMutationRef.current += 1;
+    setRemoveLoading(true);
+    setError('');
+    try {
+      await deleteDefaultResume(token);
+      persistDefaultResume(user?.id, null);
+      setResume('');
+      setResumeFile(null);
+      setResumeFileName('');
+      setResumePreview('');
+      setResumeUpdatedAt('');
+      setRewrite(null);
+      setParseStatus('idle');
+      setParseMessage('支持 PDF / DOCX');
+      setResumeSyncMessage('默认简历已移除，请上传一份简历后再分析');
+      setRemoveConfirm(false);
+    } catch (err) {
+      setError(`默认简历移除失败：${err.message || '请稍后重试'}。当前简历仍保留。`);
+    } finally {
+      setRemoveLoading(false);
+    }
   };
 
   const canSubmit = !loading && !rewriteLoading && parseStatus === 'success' && resume.trim().length >= 80 && target.trim().length >= 2 && jd.trim().length >= 50;
@@ -469,17 +610,26 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
 
     <div className="input-grid">
       <div className="input-card editorial-card upload-card">
-        <div className="card-title"><FileText size={18}/><b>简历文件</b><span>{parseStatus === 'success' ? '已解析' : 'PDF / DOCX'}</span></div>
-        <label className={`resume-upload-zone ${parseStatus}`}>
-          <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || parseStatus === 'parsing'} />
+        <div className="card-title"><FileText size={18}/><b>默认简历</b><span>{resume ? '当前简历' : 'PDF / DOCX'}</span></div>
+        {resume ? <div className="current-resume">
+          <div className="current-resume-head">
+            <div><small>当前简历</small><h3>{resumeFileName || '默认简历'}</h3><p>{resumeUpdatedAt ? `更新时间 ${formatDate(resumeUpdatedAt)}` : '已保存在当前账号'}</p></div>
+            <FileText size={34}/>
+          </div>
+          <div className="current-resume-preview"><label>文本预览</label><p>{resumePreview || shortText(resume, 240)}</p></div>
+          <div className="current-resume-status" aria-live="polite"><b>{parseStatus === 'parsing' ? parseMessage : '可直接分析或优化'}</b><span>{resumeSyncMessage || parseMessage}</span></div>
+          <div className="current-resume-actions">
+            <label className="secondary resume-change-action"><input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'} />{parseStatus === 'parsing' ? '正在更换…' : '更换简历'}</label>
+            <button className="secondary danger" onClick={() => setRemoveConfirm(true)} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'}>移除默认简历</button>
+          </div>
+          <p className="resume-replace-note">更换只影响后续分析；历史报告仍保留当时使用的简历快照。</p>
+        </div> : <label className={`resume-upload-zone ${parseStatus}`}>
+          <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleResumeUpload} disabled={loading || rewriteLoading || removeLoading || parseStatus === 'parsing'} />
           <UploadCloud size={34}/>
           <b>{resumeFile ? resumeFile.name : '上传一份简历'}</b>
-          <p>{parseMessage}</p>
-        </label>
-        {parseStatus === 'success' && <div className="resume-preview">
-          <div><label>解析预览</label><button className="secondary" onClick={resetResume} disabled={loading || rewriteLoading}>重新上传</button></div>
-          <p>{resumePreview}</p>
-        </div>}
+          <p>{parseStatus === 'parsing' ? parseMessage : '支持 PDF / DOCX'}</p>
+          {resumeSyncMessage && parseStatus !== 'parsing' && <small>{resumeSyncMessage}</small>}
+        </label>}
       </div>
       <div className="input-card editorial-card jd-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>目标 JD</b><span>{[company, businessUnit, target].filter(Boolean).join(' · ') || '待填写'}</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="岗位名称" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司（选填）" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="事业部 / 方向（选填）" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴目标岗位 JD（生成匹配报告必填；仅优化简历可不填）" /></div>
     </div>
@@ -490,6 +640,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
       <div><BadgeCheck size={18}/><span>仅依据简历与 JD 进行分析</span></div>
     </div>
     {rewrite && <div className="rewrite-output editorial-card"><div className="panel-head"><div><b>{rewrite.positioning}</b><p>{rewrite.strategy}</p></div><span>{rewrite.bullets?.length || 0} 条建议</span></div><div className="rewrite-list">{rewrite.bullets.map((item, index) => <div className="rewrite-row" key={index}><div><label>{item.section} · 原文</label><p>{item.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{item.after}</p><small>{item.evidence_boundary}</small></div></div>)}</div><div className="rewrite-extra"><div><b>HR 开场白</b><p>{rewrite.hr_intro}</p></div><div><b>还需补充</b><p>{(rewrite.gaps || []).join(' / ') || '暂无'}</p></div></div></div>}
+    {removeConfirm && <div className="modal-backdrop" role="presentation" onClick={() => !removeLoading && setRemoveConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" aria-labelledby="remove-resume-title" onClick={event => event.stopPropagation()}><small>REMOVE DEFAULT RESUME</small><h3 id="remove-resume-title">移除当前默认简历？</h3><p>将从当前账号和本机缓存中移除“{resumeFileName || '默认简历'}”。历史报告及其中的简历快照不会受影响。</p><div className="modal-actions"><button className="secondary" onClick={() => setRemoveConfirm(false)} disabled={removeLoading}>取消</button><button className="primary danger-solid" onClick={removeResume} disabled={removeLoading}>{removeLoading ? '正在移除…' : '确认移除'}</button></div></div></div>}
   </section>;
 }
 
@@ -879,7 +1030,7 @@ function App() {
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
-  if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
+  if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
   return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);

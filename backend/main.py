@@ -141,6 +141,38 @@ class CloudReportsResponse(BaseModel):
     reports: List[CloudReport]
 
 
+class DefaultResumeRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    resume_text: str = Field(..., min_length=80, max_length=50000)
+
+    @validator("filename", pre=True)
+    def strip_filename(cls, value: str) -> str:
+        return str(value or "").strip()
+
+    @validator("resume_text", pre=True)
+    def normalize_resume_text(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        normalized = re.sub(r"\r\n?", "\n", normalized)
+        normalized = re.sub(r"[ \t]+", " ", normalized)
+        return re.sub(r"\n{3,}", "\n\n", normalized)
+
+
+class DefaultResume(BaseModel):
+    filename: str
+    resume_text: str
+    char_count: int
+    preview: str
+    updated_at: int
+
+
+class DefaultResumeResponse(BaseModel):
+    resume: Optional[DefaultResume] = None
+
+
+class DeleteResponse(BaseModel):
+    ok: bool
+
+
 class Dimension(BaseModel):
     name: str
     weight: int = 0
@@ -335,6 +367,16 @@ def init_db() -> None:
                 PRIMARY KEY(id, user_id)
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS user_resumes (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                filename TEXT NOT NULL,
+                resume_text TEXT NOT NULL,
+                char_count INTEGER NOT NULL,
+                preview TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """,
         ]
         with db_connection() as connection:
             with connection.cursor() as cursor:
@@ -373,6 +415,19 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY(id, user_id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_resumes (
+                user_id INTEGER PRIMARY KEY,
+                filename TEXT NOT NULL,
+                resume_text TEXT NOT NULL,
+                char_count INTEGER NOT NULL,
+                preview TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -452,6 +507,16 @@ def authenticate_and_create_session(phone: str, password: str):  # type: ignore[
 
 def user_from_row(row) -> UserInfo:  # type: ignore[no-untyped-def]
     return UserInfo(id=int(row["id"]), phone=str(row["phone"]), created_at=int(row["created_at"]))
+
+
+def default_resume_from_row(row) -> DefaultResume:  # type: ignore[no-untyped-def]
+    return DefaultResume(
+        filename=str(row["filename"]),
+        resume_text=str(row["resume_text"]),
+        char_count=int(row["char_count"]),
+        preview=str(row["preview"]),
+        updated_at=int(row["updated_at"]),
+    )
 
 
 def current_user(authorization: Optional[str] = Header(default=None)) -> UserInfo:
@@ -1026,7 +1091,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -1094,6 +1159,53 @@ async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depe
 async def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
     execute_sql("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
     return {"ok": True}
+
+
+@app.get("/api/default-resume", response_model=DefaultResumeResponse)
+async def get_default_resume_handler(user: UserInfo = Depends(current_user)):
+    row = fetch_one(
+        """
+        SELECT filename, resume_text, char_count, preview, updated_at
+        FROM user_resumes
+        WHERE user_id = ?
+        """,
+        (user.id,),
+    )
+    return DefaultResumeResponse(resume=default_resume_from_row(row) if row is not None else None)
+
+
+@app.put("/api/default-resume", response_model=DefaultResumeResponse)
+async def put_default_resume_handler(request: DefaultResumeRequest, user: UserInfo = Depends(current_user)):
+    now = int(time.time())
+    char_count = len(request.resume_text)
+    preview = request.resume_text[:260]
+    execute_sql(
+        """
+        INSERT INTO user_resumes(user_id, filename, resume_text, char_count, preview, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            filename = excluded.filename,
+            resume_text = excluded.resume_text,
+            char_count = excluded.char_count,
+            preview = excluded.preview,
+            updated_at = excluded.updated_at
+        """,
+        (user.id, request.filename, request.resume_text, char_count, preview, now),
+    )
+    resume = DefaultResume(
+        filename=request.filename,
+        resume_text=request.resume_text,
+        char_count=char_count,
+        preview=preview,
+        updated_at=now,
+    )
+    return DefaultResumeResponse(resume=resume)
+
+
+@app.delete("/api/default-resume", response_model=DeleteResponse)
+async def delete_default_resume_handler(user: UserInfo = Depends(current_user)):
+    execute_sql("DELETE FROM user_resumes WHERE user_id = ?", (user.id,))
+    return DeleteResponse(ok=True)
 
 
 @app.get("/")

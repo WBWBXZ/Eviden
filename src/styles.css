@@ -107,6 +107,9 @@
 .evidence-compare-grid{grid-template-columns:minmax(0,5fr) minmax(360px,7fr)!important}.evidence-compare-grid.short-evidence{grid-template-columns:minmax(240px,4fr) minmax(420px,8fr)!important}.evidence-compare-grid .resume-lane p{max-width:52em}.evidence-verdict p{max-width:68em}@media(max-width:820px){.evidence-compare-grid,.evidence-compare-grid.short-evidence{grid-template-columns:1fr!important}}
 
 
+/* Account default resume */
+.current-resume{flex:1;min-height:360px;border:1.5px solid #151515;background:#fffdf8;display:flex;flex-direction:column}.current-resume-head{display:flex;justify-content:space-between;gap:18px;padding:22px;border-bottom:1.5px solid #151515;background:#ebe4d6}.current-resume-head>div{min-width:0}.current-resume-head small,.current-resume-preview label{display:block;font-size:11px;font-weight:900;letter-spacing:.7px;color:#777268}.current-resume-head h3{margin:7px 0 5px;font-size:24px;line-height:31px;overflow-wrap:anywhere}.current-resume-head p{margin:0;color:#5d5a52;font-size:12px;line-height:18px}.current-resume-head svg{flex:0 0 auto}.current-resume-preview{flex:1;padding:20px 22px;border-bottom:1.5px solid #151515}.current-resume-preview p{margin:10px 0 0;color:#3f3c35;font-size:14px;line-height:23px;display:-webkit-box;-webkit-line-clamp:7;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}.current-resume-status{padding:13px 22px;display:flex;flex-direction:column;gap:4px;background:#f4f1ea;border-bottom:1.5px solid #151515}.current-resume-status b{font-size:13px}.current-resume-status span{font-size:12px;line-height:18px;color:#5d5a52}.current-resume-actions{display:flex;gap:10px;padding:16px 22px}.resume-change-action{position:relative;cursor:pointer}.resume-change-action input{position:absolute!important;inset:0;width:100%!important;height:100%!important;margin:0!important;opacity:0;cursor:pointer}.resume-change-action:has(input:disabled){cursor:default;opacity:.5}.resume-replace-note{margin:0;padding:0 22px 18px;color:#5d5a52;font-size:12px;line-height:19px}.resume-upload-zone>small{max-width:420px;color:#777268;font-size:12px;line-height:18px}
+
 /* Mobile override: 375–430px full-flow adaptation. Keep this block last. */
 @media(max-width:620px){
   html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
@@ -166,6 +169,14 @@
   .upload-card .resume-upload-zone,.resume-upload-zone{min-height:180px;padding:20px 14px}
   .resume-upload-zone b{font-size:18px;line-height:25px;white-space:normal}
   .resume-upload-zone p{font-size:13px;line-height:20px}
+  .current-resume{min-height:0}
+  .current-resume-head,.current-resume-preview{padding:16px}
+  .current-resume-head h3{font-size:20px;line-height:27px}
+  .current-resume-preview p{-webkit-line-clamp:6}
+  .current-resume-status{padding:13px 16px}
+  .current-resume-actions{display:grid;grid-template-columns:1fr;padding:14px 16px}
+  .current-resume-actions .secondary{width:100%;min-height:44px}
+  .resume-replace-note{padding:0 16px 16px}
   .resume-preview>div{align-items:flex-start;flex-wrap:wrap}
   .resume-preview .secondary{min-height:44px;height:auto}
   .input-card textarea,.input-card input+textarea,.jd-card textarea{height:230px;min-height:230px;resize:vertical}
