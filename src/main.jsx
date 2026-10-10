@@ -172,12 +172,23 @@ const fetchCloudReports = async (token) => {
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
 const fetchDefaultResume = (token, signal) => apiJson('/api/default-resume', { token, signal });
-const saveDefaultResume = (token, resume) => apiJson('/api/default-resume', {
-  method: 'PUT',
-  token,
-  body: { filename: resume.filename, resume_text: resume.resume_text },
+const requestDefaultResumeMutation = async (token, method, body) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    return await apiJson('/api/default-resume', { method, token, body, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('云端默认简历同步超时');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+const saveDefaultResume = (token, resume) => requestDefaultResumeMutation(token, 'PUT', {
+  filename: resume.filename,
+  resume_text: resume.resume_text,
 });
-const deleteDefaultResume = (token) => apiJson('/api/default-resume', { method: 'DELETE', token });
+const deleteDefaultResume = (token) => requestDefaultResumeMutation(token, 'DELETE');
 const deleteCloudReportWithRetry = async (token, id) => {
   let lastError;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -427,6 +438,11 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
   useEffect(() => {
     if (!token || !user?.id) return undefined;
     const controller = new AbortController();
+    let syncTimedOut = false;
+    const syncTimer = window.setTimeout(() => {
+      syncTimedOut = true;
+      controller.abort();
+    }, 20000);
     const mutationAtStart = resumeMutationRef.current;
     const cachedAtStart = getCachedDefaultResume(user.id);
     const applyResume = (nextResume, message) => {
@@ -443,6 +459,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     setResumeSyncMessage(cachedAtStart ? '正在同步云端默认简历…' : '正在查找云端默认简历…');
     fetchDefaultResume(token, controller.signal)
       .then(async data => {
+        window.clearTimeout(syncTimer);
         if (resumeMutationRef.current !== mutationAtStart) return;
         const cloudResume = normalizeDefaultResume(data?.resume);
         const keepLocal = cachedAtStart && (!cloudResume || defaultResumeUpdatedAtMs(cachedAtStart) > defaultResumeUpdatedAtMs(cloudResume));
@@ -460,12 +477,16 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
         applyResume(cloudResume, cloudResume ? '已与云端同步' : '当前账号还没有默认简历，请上传一份');
       })
       .catch(err => {
-        if (err.name === 'AbortError') return;
+        window.clearTimeout(syncTimer);
+        if (err.name === 'AbortError' && !syncTimedOut) return;
         setResumeSyncMessage(cachedAtStart
           ? '云端同步暂时失败，已保留本机默认简历'
           : '云端同步暂时失败，你仍可上传并使用简历');
       });
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(syncTimer);
+      controller.abort();
+    };
   }, [token, user?.id]);
 
   const submit = async () => {
