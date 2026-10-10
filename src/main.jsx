@@ -174,7 +174,7 @@ const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURICompon
 const fetchDefaultResume = (token, signal) => apiJson('/api/default-resume', { token, signal });
 const requestDefaultResumeMutation = async (token, method, body) => {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), 60000);
   try {
     return await apiJson('/api/default-resume', { method, token, body, signal: controller.signal });
   } catch (error) {
@@ -442,7 +442,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     const syncTimer = window.setTimeout(() => {
       syncTimedOut = true;
       controller.abort();
-    }, 20000);
+    }, 45000);
     const mutationAtStart = resumeMutationRef.current;
     const cachedAtStart = getCachedDefaultResume(user.id);
     const applyResume = (nextResume, message) => {
