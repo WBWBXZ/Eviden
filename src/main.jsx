@@ -272,13 +272,13 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
 
     <div className="product-hero refined-hero">
       <div className="product-copy refined-copy">
-        <div className="product-eyebrow">AI Application Strategy Workspace</div>
+        <div className="product-eyebrow">AI JOB MATCH & APPLICATION STRATEGY</div>
         <h1><span>从 JD 到申请策略，</span><span>一次生成</span></h1>
-        <p>输入简历和目标 JD，生成匹配评分、证据地图、改写建议与面试准备方向</p>
+        <p>导入简历和目标 JD，获得匹配判断、关键缺口与投递建议</p>
         <div className="home-logic" aria-label="产品逻辑说明">
-          <div><span>输入</span><b>导入当前简历</b><p>支持 PDF / DOCX，扫描版 PDF 会尝试 AI OCR</p></div>
-          <div><span>解析</span><b>粘贴目标 JD</b><p>系统从 JD 中识别岗位要求</p></div>
-          <div><span>输出</span><b>生成申请策略</b><p>匹配分、证据、缺口、改写建议</p></div>
+          <div><span>输入</span><b>导入简历</b><p>支持 PDF、DOCX 和扫描版 PDF</p></div>
+          <div><span>解析</span><b>添加目标岗位</b><p>粘贴 JD，补充公司和业务方向</p></div>
+          <div><span>输出</span><b>生成投递方案</b><p>查看匹配依据、关键缺口和准备建议</p></div>
         </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>开始分析 <ArrowRight size={18}/></button>
@@ -293,13 +293,13 @@ function Landing({ onStart, onOpenHistory, historyCount, user, onAuth, onLogout 
           <div><label>目标岗位</label><strong>AI 产品经理实习生</strong></div>
         </div>
         <div className="report-preview">
-          <div className="preview-score"><label>当前简历 × 目标岗位</label><strong>78</strong><span>匹配评分</span></div>
-          <div className="preview-summary"><label>申请建议</label><b>准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达</p></div>
+          <div className="preview-score"><label>岗位匹配结果</label><strong>78</strong><span>综合匹配分</span></div>
+          <div className="preview-summary"><label>投递建议</label><b>补充准备后投递</b><p>优势来自 AI 产品理解与商业化运营经验；风险在数据分析、用户研究和结果量化表达</p></div>
         </div>
         <div className="preview-table">
-          <div><span>匹配证据</span><b>AI Agent / Prompt / 工作流迭代</b></div>
-          <div><span>风险缺口</span><b>SQL、用户研究、结果量化</b></div>
-          <div><span>申请动作</span><b>改写简历主线，准备追问案例</b></div>
+          <div><span>已有证据</span><b>AI Agent / Prompt / 工作流迭代</b></div>
+          <div><span>关键缺口</span><b>SQL、用户研究、结果量化</b></div>
+          <div><span>优先行动</span><b>改写简历主线，准备追问案例</b></div>
         </div>
       </div>
     </div>
