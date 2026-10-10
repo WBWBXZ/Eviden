@@ -487,8 +487,16 @@ const trimUiEnd = (value) => String(value || '').trim().replace(/[。.]$/g, '');
 const matchLabelText = (level) => ({ 强: '强匹配', 中: '部分匹配', 弱: '弱匹配' }[level] || `${level || '中'}匹配`);
 const cleanDiagnosis = value => trimUiEnd(value)
   .replace(/引用包含概括或组合片段，?需以原文为准复核/g, '')
+  .replace(/^[；;，,。\.\s]+/g, '')
   .replace(/[；;，,]\s*$/g, '')
   .trim();
+const evidenceAction = item => {
+  if (item.suggestion) return trimUiEnd(item.suggestion);
+  const diagnosis = cleanDiagnosis(item.diagnosis);
+  if (item.resumeQuote === '无直接证据' || /真实缺口|证据不足|缺失/.test(diagnosis)) return `补充一条与「${trimUiEnd(item.req)}」直接相关的经历，写清个人动作和可量化结果`;
+  if (/表达缺口|不够具体|未体现/.test(diagnosis)) return '把现有经历改成“业务场景—个人动作—量化结果”，并前置与岗位最相关的信息';
+  return '保留这条证据，再补充你的决策依据、个人贡献和最终结果';
+};
 const interviewerQuestion = gap => {
   const title = trimUiEnd(gap.title);
   if (/行业|背景|领域/.test(title)) return '请讲一个你快速理解陌生行业，并将洞察转化为产品决策的具体案例';
@@ -561,7 +569,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
             <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className="evidence-compare-grid">
               <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
-              <section className="evidence-verdict"><label>匹配判断</label><div><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p></div></section>
+              <section className="evidence-verdict"><div className="verdict-copy"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p></div><div className="evidence-action"><label>建议怎么改</label><p>{evidenceAction(item)}</p></div></section>
             </div>
           </article>)}
         </div>
@@ -787,7 +795,7 @@ function App() {
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'input') return withAuth(<InputPanel onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
-  if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={backFromCurrent} onCompare={openCompare} />);
+  if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
   return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }

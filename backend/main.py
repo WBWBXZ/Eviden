@@ -161,6 +161,7 @@ class Evidence(BaseModel):
     level: str
     confidence: int = Field(..., ge=0, le=100)
     diagnosis: str
+    suggestion: str = ""
 
     @validator("level")
     def validate_level(cls, value: str) -> str:
@@ -752,7 +753,7 @@ JSON 必须严格包含：
     {"name":"关键词与表达","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
   ],
   "summary":"申请建议的核心判断，2到3句",
-  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因"}],
+  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"针对该问题给出具体的简历补充或改写动作"}],
   "gaps":[{"level":"高/中/低","title":"缺口标题","desc":"具体说明"}],
   "actions":[{"title":"行动标题","desc":"可执行步骤","effort":"预计时间"}],
   "rewrites":[{"before":"简历逐字原文","after":"基于同一事实的建议表达"}],
