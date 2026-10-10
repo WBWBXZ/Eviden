@@ -39,6 +39,7 @@ const sampleJD = `AI 产品经理实习生
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const HISTORY_KEY = 'eviden.analysis.history.v1';
+const HISTORY_OWNER_KEY = 'eviden.analysis.history.owner.v1';
 const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
 const AUTH_USER_KEY = 'eviden.auth.user.v1';
 const DELETED_REPORTS_KEY = 'eviden.deleted.reports.v1';
@@ -52,8 +53,15 @@ function getStoredHistory() {
   }
 }
 
-function persistHistory(records) {
+function persistHistory(records, ownerId) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, 30)));
+  if (ownerId) localStorage.setItem(HISTORY_OWNER_KEY, String(ownerId));
+}
+
+function getHistoryForUser(userId) {
+  const ownerId = localStorage.getItem(HISTORY_OWNER_KEY);
+  if (ownerId && ownerId !== String(userId)) return [];
+  return getStoredHistory();
 }
 
 function getDeletedReportIds() {
@@ -80,13 +88,14 @@ function getStoredUser() {
   }
 }
 
-async function apiJson(path, { method = 'GET', body, token } = {}) {
+async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (!response.ok) {
     let message = '请求失败，请稍后重试';
@@ -106,7 +115,23 @@ async function apiJson(path, { method = 'GET', body, token } = {}) {
 const authLogin = (payload) => apiJson('/api/auth/login', { method: 'POST', body: payload });
 const authRegister = (payload) => apiJson('/api/auth/register', { method: 'POST', body: payload });
 const authMe = (token) => apiJson('/api/auth/me', { token });
-const fetchCloudReports = (token) => apiJson('/api/reports', { token });
+const fetchCloudReports = async (token) => {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      return await apiJson('/api/reports', { token, signal: controller.signal });
+    } catch (error) {
+      lastError = error.name === 'AbortError' ? new Error('云端报告同步超时') : error;
+      if (error.status === 401) throw error;
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 600));
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+  throw lastError;
+};
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
 const deleteCloudReportWithRetry = async (token, id) => {
@@ -730,13 +755,22 @@ function App() {
     const restore = async () => {
       try {
         const userInfo = await authMe(token);
-        const cloud = await fetchCloudReports(token);
         if (cancelled) return;
         setUser(userInfo);
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userInfo));
-        const merged = mergeHistory(getStoredHistory(), cloud.reports || []);
-        setHistory(merged);
-        persistHistory(merged);
+        const localRecords = getHistoryForUser(userInfo.id);
+        setHistory(localRecords);
+        persistHistory(localRecords, userInfo.id);
+        try {
+          const cloud = await fetchCloudReports(token);
+          if (cancelled) return;
+          const merged = mergeHistory(localRecords, cloud.reports || []);
+          setHistory(merged);
+          persistHistory(merged, userInfo.id);
+        } catch (syncError) {
+          if (syncError.status === 401) throw syncError;
+          console.warn('restore cloud reports failed temporarily', syncError);
+        }
       } catch (err) {
         if (err.status === 401) {
           localStorage.removeItem(AUTH_TOKEN_KEY);
@@ -771,21 +805,23 @@ function App() {
   const handleAuthSuccess = auth => {
     localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(auth.user));
+    const localRecords = getHistoryForUser(auth.user.id);
+    persistHistory(localRecords, auth.user.id);
     setToken(auth.token);
     setUser(auth.user);
+    setHistory(localRecords);
     setShowAuth(false);
     const nextStep = pendingStep;
     if (nextStep) {
       go(nextStep);
       setPendingStep('');
     }
-    const localRecords = getStoredHistory();
     Promise.allSettled(localRecords.map(record => saveCloudReport(auth.token, record)))
       .then(() => fetchCloudReports(auth.token))
       .then(cloud => {
         const merged = mergeHistory(localRecords, cloud.reports || []);
         setHistory(merged);
-        persistHistory(merged);
+        persistHistory(merged, auth.user.id);
       })
       .catch(err => console.warn('sync history failed', err));
   };
@@ -793,7 +829,6 @@ function App() {
   const confirmLogout = () => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USER_KEY);
-    localStorage.removeItem(HISTORY_KEY);
     setToken('');
     setUser(null);
     setHistory([]);
@@ -813,7 +848,7 @@ function App() {
     const record = makeHistoryRecord(analysisResult, input);
     const nextHistory = [record, ...history.filter(item => item.id !== record.id)].slice(0, 30);
     setHistory(nextHistory);
-    persistHistory(nextHistory);
+    persistHistory(nextHistory, user?.id);
     saveCloudReport(token, record).catch(err => console.warn('save cloud report failed', err));
     setResult(record.result);
     setPreviousStep('input');
@@ -824,7 +859,7 @@ function App() {
     markReportDeleted(id);
     const nextHistory = history.filter(item => item.id !== id);
     setHistory(nextHistory);
-    persistHistory(nextHistory);
+    persistHistory(nextHistory, user?.id);
     if (token) deleteCloudReportWithRetry(token, id).catch(err => console.warn('delete cloud report failed after retries', err));
   };
 
