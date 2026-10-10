@@ -247,6 +247,13 @@ def db_connection():  # type: ignore[no-untyped-def]
             _DB_POOL = ThreadedConnectionPool(1, 6, database_url(), cursor_factory=RealDictCursor)
         connection = _DB_POOL.getconn()
         try:
+            try:
+                with connection.cursor() as health_cursor:
+                    health_cursor.execute("SELECT 1")
+                    health_cursor.fetchone()
+            except Exception:
+                _DB_POOL.putconn(connection, close=True)
+                connection = _DB_POOL.getconn()
             yield connection
             connection.commit()
         except Exception:

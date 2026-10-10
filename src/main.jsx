@@ -40,6 +40,7 @@ const sampleJD = `AI 产品经理实习生
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const HISTORY_KEY = 'eviden.analysis.history.v1';
 const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
+const AUTH_USER_KEY = 'eviden.auth.user.v1';
 
 function getStoredHistory() {
   try {
@@ -52,6 +53,15 @@ function getStoredHistory() {
 
 function persistHistory(records) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, 30)));
+}
+
+function getStoredUser() {
+  try {
+    const user = JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null');
+    return user && user.id && user.phone ? user : null;
+  } catch {
+    return null;
+  }
 }
 
 async function apiJson(path, { method = 'GET', body, token } = {}) {
@@ -70,7 +80,9 @@ async function apiJson(path, { method = 'GET', body, token } = {}) {
     } catch {
       // Keep default message.
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -639,8 +651,8 @@ function App() {
   const [previousStep, setPreviousStep] = useState('landing');
   const [result, setResult] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
-  const [user, setUser] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [user, setUser] = useState(getStoredUser);
+  const [history, setHistory] = useState(getStoredHistory);
   const [compareRecords, setCompareRecords] = useState([]);
   const [showAuth, setShowAuth] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -659,15 +671,19 @@ function App() {
         const cloud = await fetchCloudReports(token);
         if (cancelled) return;
         setUser(userInfo);
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userInfo));
         const merged = mergeHistory(getStoredHistory(), cloud.reports || []);
         setHistory(merged);
         persistHistory(merged);
       } catch (err) {
-        localStorage.removeItem(AUTH_TOKEN_KEY);
-        localStorage.removeItem(HISTORY_KEY);
-        setToken('');
-        setUser(null);
-        setHistory([]);
+        if (err.status === 401) {
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(AUTH_USER_KEY);
+          setToken('');
+          setUser(null);
+        } else {
+          console.warn('restore session failed temporarily', err);
+        }
       }
     };
     restore();
@@ -692,6 +708,7 @@ function App() {
 
   const handleAuthSuccess = auth => {
     localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(auth.user));
     setToken(auth.token);
     setUser(auth.user);
     setShowAuth(false);
@@ -713,6 +730,7 @@ function App() {
 
   const confirmLogout = () => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
     localStorage.removeItem(HISTORY_KEY);
     setToken('');
     setUser(null);
