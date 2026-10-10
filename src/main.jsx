@@ -380,7 +380,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
   return <section className="workspace input-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading || rewriteLoading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading || rewriteLoading}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
-      <div><small>STEP 01 / INPUT</small><h2>上传简历，校准目标岗位</h2><p>公司 / 事业部为选填项，用于报告归档与业务语境判断；核心匹配仍以简历证据和 JD 原文为准</p></div>
+      <div><small>STEP 01 / INPUT</small><h2>导入简历，匹配目标岗位</h2><p>填写岗位信息并粘贴 JD，生成岗位匹配报告</p></div>
       <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'}</button></div>
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
@@ -410,8 +410,8 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory }) {
 
     <div className="hint-row">
       <div><UploadCloud size={18}/><span>支持文本型 PDF / DOCX</span></div>
-      <div><Route size={18}/><span>公司 / 事业部会进入历史记录与匹配语境</span></div>
-      <div><BadgeCheck size={18}/><span>只基于证据判断，不编造经历</span></div>
+      <div><Route size={18}/><span>公司和业务方向选填，用于区分和归档报告</span></div>
+      <div><BadgeCheck size={18}/><span>仅依据简历与 JD 进行分析</span></div>
     </div>
     {rewrite && <div className="rewrite-output editorial-card"><div className="panel-head"><div><b>{rewrite.positioning}</b><p>{rewrite.strategy}</p></div><span>{rewrite.bullets?.length || 0} 条建议</span></div><div className="rewrite-list">{rewrite.bullets.map((item, index) => <div className="rewrite-row" key={index}><div><label>{item.section} · 原文</label><p>{item.before}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{item.after}</p><small>{item.evidence_boundary}</small></div></div>)}</div><div className="rewrite-extra"><div><b>HR 开场白</b><p>{rewrite.hr_intro}</p></div><div><b>还需补充</b><p>{(rewrite.gaps || []).join(' / ') || '暂无'}</p></div></div></div>}
   </section>;
