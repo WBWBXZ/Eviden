@@ -490,13 +490,7 @@ const cleanDiagnosis = value => trimUiEnd(value)
   .replace(/^[；;，,。\.\s]+/g, '')
   .replace(/[；;，,]\s*$/g, '')
   .trim();
-const evidenceAction = item => {
-  if (item.suggestion) return trimUiEnd(item.suggestion);
-  const diagnosis = cleanDiagnosis(item.diagnosis);
-  if (item.resumeQuote === '无直接证据' || /真实缺口|证据不足|缺失/.test(diagnosis)) return `补充一条与「${trimUiEnd(item.req)}」直接相关的经历，写清个人动作和可量化结果`;
-  if (/表达缺口|不够具体|未体现/.test(diagnosis)) return '把现有经历改成“业务场景—个人动作—量化结果”，并前置与岗位最相关的信息';
-  return '保留这条证据，再补充你的决策依据、个人贡献和最终结果';
-};
+const evidenceAction = item => trimUiEnd(item.suggestion || '');
 const interviewerQuestion = gap => {
   const title = trimUiEnd(gap.title);
   if (/行业|背景|领域/.test(title)) return '请讲一个你快速理解陌生行业，并将洞察转化为产品决策的具体案例';
@@ -505,9 +499,10 @@ const interviewerQuestion = gap => {
   return `请结合具体项目说明你如何补足「${title}」这项能力`;
 };
 const normalizeInterviewQuestion = question => {
-  const text = trimUiEnd(question);
-  const relayed = text.match(/^如果面试官追问「(.+?)」，你会如何用具体案例说明？?$/);
-  return relayed ? interviewerQuestion({ title: relayed[1] }) : text;
+  const text = trimUiEnd(question).replace(/[？?！!]+$/g, '');
+  const relayed = text.match(/^如果面试官追问「(.+?)」，你会如何用具体案例说明$/);
+  const normalized = relayed ? interviewerQuestion({ title: relayed[1] }) : text;
+  return `${normalized}？`;
 };
 const reportQuestions = result => {
   const questions = (result.questions || []).map(normalizeInterviewQuestion);
@@ -516,8 +511,8 @@ const reportQuestions = result => {
     if (questions.length >= 5) break;
     questions.push(question);
   }
-  while (questions.length < 5) questions.push('这段经历中你本人负责的决策、动作和最终结果分别是什么？');
-  return questions.slice(0, 5);
+  while (questions.length < 5) questions.push('这段经历中你本人负责的决策、动作和最终结果分别是什么');
+  return questions.slice(0, 5).map(normalizeInterviewQuestion);
 };
 const reportRewrites = result => {
   const rewrites = [...(result.rewrites || [])];
@@ -569,7 +564,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
             <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className="evidence-compare-grid">
               <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
-              <section className="evidence-verdict"><div className="verdict-copy"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p></div><div className="evidence-action"><label>建议怎么改</label><p>{evidenceAction(item)}</p></div></section>
+              <section className="evidence-verdict"><div className="verdict-copy"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p>{evidenceAction(item) && <div className="evidence-action"><label>具体调整建议</label><p>{evidenceAction(item)}</p></div>}</div></section>
             </div>
           </article>)}
         </div>
