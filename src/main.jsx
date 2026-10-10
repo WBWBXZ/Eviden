@@ -316,7 +316,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onV
     <div className="product-hero refined-hero">
       <div className="product-copy refined-copy">
         <div className="product-eyebrow">AI JOB MATCH & APPLICATION STRATEGY</div>
-        <h1><span>从 JD 到申请策略，</span><span>一次生成</span></h1>
+        <h1><span>Make Potential</span><span>Evident.</span></h1>
         <p>导入简历和目标 JD，获得匹配判断、关键缺口与投递建议</p>
         <div className="home-logic" aria-label="产品逻辑说明">
           <div><span>输入</span><b>导入简历</b><p>支持 PDF、DOCX 和扫描版 PDF</p></div>
