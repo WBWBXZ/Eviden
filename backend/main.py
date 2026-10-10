@@ -39,7 +39,7 @@ load_dotenv(".env")
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
-DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
+DEFAULT_MODEL = "Qwen/Qwen3.5-35B-A3B"
 DEFAULT_OCR_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA_DIR, "eviden.db")
