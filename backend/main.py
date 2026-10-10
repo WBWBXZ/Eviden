@@ -279,7 +279,19 @@ def db_connection():  # type: ignore[no-untyped-def]
         if psycopg2 is None or ThreadedConnectionPool is None:
             raise RuntimeError("Postgres dependency is not installed")
         if _DB_POOL is None:
-            _DB_POOL = ThreadedConnectionPool(1, 6, database_url(), cursor_factory=RealDictCursor)
+            _DB_POOL = ThreadedConnectionPool(
+                1,
+                6,
+                database_url(),
+                cursor_factory=RealDictCursor,
+                connect_timeout=8,
+                keepalives=1,
+                keepalives_idle=10,
+                keepalives_interval=5,
+                keepalives_count=3,
+                sslmode="require",
+                options="-c statement_timeout=15000",
+            )
         connection = _DB_POOL.getconn()
         try:
             try:
