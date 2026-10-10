@@ -251,7 +251,7 @@ async function requestModelJson(path, body, fallbackMessage) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const attemptStartedAt = Date.now();
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 65000);
+    const timer = window.setTimeout(() => controller.abort(), 90000);
     try {
       const response = await fetch(`${API_BASE_URL}${path}`, {
         method: 'POST',

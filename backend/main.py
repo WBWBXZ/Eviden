@@ -39,7 +39,7 @@ load_dotenv(".env")
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
-DEFAULT_MODEL = "Qwen/Qwen3.5-35B-A3B"
+DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DEFAULT_OCR_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA_DIR, "eviden.db")
@@ -844,7 +844,7 @@ JSON 必须严格包含：
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 3 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖与数据结果，并直接使用面试官提问口吻。summary 不超过 50 个中文字符；dimension 的 note、单条 bonus_evidence、deduction_reason、remedy 各不超过 18 个中文字符；evidence 的 proof、diagnosis、suggestion 各不超过 30 个中文字符；gaps、actions、rewrites 的说明各不超过 30 个中文字符。只压缩重复措辞，不得省略评分依据、加分证据、扣分原因、补救建议、证据核对、缺口、行动建议、改写或面试问题。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻。summary 用 2–3 句话表达；dimension 的 note、单条 bonus_evidence、deduction_reason、remedy 各不超过 35 个中文字符；evidence 的 proof、diagnosis、suggestion 各不超过 55 个中文字符；gaps、actions、rewrites 的说明各不超过 55 个中文字符。不得省略评分依据、加分证据、扣分原因、补救建议、证据核对、缺口、行动建议、改写或面试问题。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -960,7 +960,7 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
         gaps=payload.gaps[:3],
         actions=payload.actions[:3],
         rewrites=payload.rewrites[:3],
-        questions=payload.questions[:3],
+        questions=payload.questions[:5],
         score_model=payload.score_model,
         position_type=payload.position_type,
         confidence_label=payload.confidence_label if payload.confidence_label in ("高", "中", "低") else "中",
@@ -1013,7 +1013,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         "model": model_name(),
         "messages": messages,
         "temperature": 0,
-        "max_tokens": 2800,
+        "max_tokens": 3800,
         "enable_thinking": False,
         "stream": False,
     }
@@ -1025,7 +1025,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         if use_json_format:
             payload["response_format"] = {"type": "json_object"}
         try:
-            timeout = httpx.Timeout(60.0, connect=10.0)
+            timeout = httpx.Timeout(90.0, connect=15.0)
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 response = await client.post(
                     "{0}/chat/completions".format(api_base_url().rstrip("/")),
