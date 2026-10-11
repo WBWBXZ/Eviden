@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -1353,6 +1354,10 @@ async def process_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
         )
 
 
+def start_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
+    asyncio.run(process_analysis_job(job_id, request))
+
+
 def analysis_job_response(row: Dict[str, Any]) -> AnalysisJobStatus:
     result_json = row.get("result_json")
     return AnalysisJobStatus(
@@ -1379,7 +1384,7 @@ async def create_analysis_job_handler(
         """,
         (job_id, user.id, "queued", json.dumps(request.dict(), ensure_ascii=False), None, "", now, now),
     )
-    asyncio.create_task(process_analysis_job(job_id, request))
+    threading.Thread(target=start_analysis_job, args=(job_id, request), daemon=True).start()
     return AnalysisJobCreated(job_id=job_id, status="queued")
 
 
