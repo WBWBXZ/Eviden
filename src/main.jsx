@@ -977,7 +977,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
 
         <div className="panel compact editorial-card question-panel result-questions" id="interview-plan"><div className="panel-head"><b>面试准备</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
 
-        <div className="decision-card result-next-step"><small>NEXT STEP / 下一步</small><h3>按优先级完成准备，再决定投递节奏</h3><p>你可以继续筛选其他岗位，确认最值得投入准备的机会</p><button className="primary" onClick={onCompare}>对比其他岗位</button></div>
+        <div className="decision-card result-next-step"><small>NEXT STEP / 下一步</small><h3>继续比较机会</h3><button className="primary" onClick={onCompare}>对比其他岗位</button></div>
       </main>
     </div>
   </section>;
