@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -28,7 +29,7 @@ except ImportError:  # pragma: no cover - SQLite fallback still works without Po
     ThreadedConnectionPool = None
 from docx import Document
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -1367,7 +1368,6 @@ def analysis_job_response(row: Dict[str, Any]) -> AnalysisJobStatus:
 @app.post("/api/analysis-jobs", response_model=AnalysisJobCreated)
 async def create_analysis_job_handler(
     request: AnalyzeRequest,
-    background_tasks: BackgroundTasks,
     user: UserInfo = Depends(current_user),
 ):
     job_id = "analysis-{0}".format(uuid.uuid4().hex)
@@ -1379,7 +1379,7 @@ async def create_analysis_job_handler(
         """,
         (job_id, user.id, "queued", json.dumps(request.dict(), ensure_ascii=False), None, "", now, now),
     )
-    background_tasks.add_task(process_analysis_job, job_id, request)
+    asyncio.create_task(process_analysis_job(job_id, request))
     return AnalysisJobCreated(job_id=job_id, status="queued")
 
 
