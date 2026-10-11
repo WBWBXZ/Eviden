@@ -927,10 +927,10 @@ const reportNextStep = result => {
   return { title: '整理投递材料', detail: '核对简历与岗位要求后，开始准备投递' };
 };
 
-function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
+function ResultPage({ result, onBack, backLabel = '返回上一步', onHome, onOpenHistory, onCompare, showHistoryButton = true }) {
   const nextStep = reportNextStep(result);
   return <section className="workspace result-page result-v2">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>{backLabel}</button>{showHistoryButton && <button className="secondary" onClick={onOpenHistory}>历史报告</button>}<button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
     <div className="report-context-bar">
       <div><span>当前简历</span><b>{result.resumeName}</b></div>
@@ -1240,7 +1240,7 @@ function App() {
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setRewriteContext(context); go('rewrite'); }} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
-  return withAuth(<ResultPage result={result} onBack={backFromCurrent} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
+  return withAuth(<ResultPage result={result} onBack={backFromCurrent} backLabel={previousStep === 'history' ? '返回历史报告' : previousStep === 'compare' ? '返回岗位对比' : '返回上一步'} showHistoryButton={previousStep !== 'history'} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }
 
 createRoot(document.getElementById('root')).render(<App />);
