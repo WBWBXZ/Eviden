@@ -339,6 +339,13 @@ async function resumePendingAnalysis(token) {
   return { result, input: pending.input };
 }
 
+async function requestJobScreening({ resume, jobs }) {
+  return requestModelJson('/api/screen-jobs', {
+    resume,
+    jds: jobs.map(job => ({ title: job.title, company: job.company, business_unit: job.businessUnit, jd: job.jd })),
+  }, '岗位筛选暂时没有完成，请重新生成。');
+}
+
 async function requestResumeParse(file) {
   if (file.size > 8 * 1024 * 1024) throw new Error('文件过大，请上传 8MB 以内的简历。');
   const contentBase64 = await new Promise((resolve, reject) => {
@@ -424,7 +431,7 @@ function AuthModal({ onClose, onSuccess }) {
   </div>;
 }
 
-function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onViewLatest, onAuth, onLogout }) {
+function Landing({ onStart, onScreenJobs, onOpenHistory, historyCount, user, latestReport, onViewLatest, onAuth, onLogout }) {
   const latestResult = latestReport?.result;
   const isRealReport = Boolean(user && latestReport && latestResult);
   const matchedEvidence = latestResult?.evidence?.find(item => item.resumeQuote && item.resumeQuote !== '无直接证据');
@@ -452,7 +459,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onV
     <nav className="nav product-nav">
       <Brand />
       <div className="nav-right">
-        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
+        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onStart}>开始分析</button></div>
         <div className="account-entry">{user ? <button onClick={onLogout}>退出登录</button> : <button onClick={onAuth}>登录</button>}</div>
       </div>
     </nav>
@@ -469,6 +476,7 @@ function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onV
         </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>开始分析 <ArrowRight size={18}/></button>
+          <button className="secondary" onClick={onScreenJobs}>筛选多个岗位</button>
           <button className="secondary" onClick={onOpenHistory}>查看历史报告</button>
         </div>
       </div>
@@ -494,6 +502,49 @@ function Landing({ onStart, onOpenHistory, historyCount, user, latestReport, onV
         </div>
       </div>
     </div>
+  </section>;
+}
+
+function JobScreening({ token, user, onBack, onAnalyze, onStart }) {
+  const cachedResume = getCachedDefaultResume(user?.id);
+  const resume = cachedResume?.resume_text || '';
+  const [jobs, setJobs] = useState([
+    { title: '', company: '', businessUnit: '', jd: '' },
+    { title: '', company: '', businessUnit: '', jd: '' },
+    { title: '', company: '', businessUnit: '', jd: '' },
+  ]);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [deepLoading, setDeepLoading] = useState(-1);
+  const [error, setError] = useState('');
+  const updateJob = (index, field, value) => setJobs(current => current.map((job, i) => i === index ? { ...job, [field]: value } : job));
+  const validJobs = jobs.filter(job => job.title.trim().length >= 2 && job.jd.trim().length >= 50);
+  const screen = async () => {
+    if (!resume) return setError('请先在单岗位分析中上传默认简历。');
+    if (validJobs.length < 2) return setError('请至少完整填写 2 个岗位。');
+    setLoading(true); setError(''); setResults([]);
+    try { const data = await requestJobScreening({ resume, jobs: validJobs }); setResults(data.results || []); }
+    catch (err) { setError(err.message || '岗位筛选失败，请稍后重试。'); }
+    finally { setLoading(false); }
+  };
+  const deepAnalyze = async item => {
+    const job = validJobs[item.jd_index];
+    if (!job) return;
+    const input = { resume, jd: job.jd, target: job.title, company: job.company, businessUnit: job.businessUnit, resumeFileName: cachedResume?.filename };
+    setDeepLoading(item.jd_index); setError('');
+    try { const report = await requestAnalysis(input, token); onAnalyze(report, input); }
+    catch (err) { setError(err.message || '完整报告生成失败，请稍后重试。'); }
+    finally { setDeepLoading(-1); }
+  };
+  return <section className="workspace screening-page">
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="secondary" onClick={onStart}>单岗位分析</button></div></nav>
+    <div className="page-head"><div><small>JOB SHORTLIST / 岗位筛选</small><h2>先选对岗位，再深入准备</h2><p>用同一份简历横向判断多个 JD，只输出排序与关键依据</p></div><div className="page-actions"><button className="primary" onClick={screen} disabled={loading || validJobs.length < 2}>{loading ? '筛选中…' : '开始筛选'}</button></div></div>
+    {!resume && <div className="error-banner editorial-card"><b>还没有默认简历</b><span>先上传一份简历，再回来筛选岗位。</span><button className="secondary" onClick={onStart}>去上传简历</button></div>}
+    {error && <div className="error-banner editorial-card"><b>暂未完成</b><span>{error}</span></div>}
+    <div className="screening-inputs">{jobs.map((job, index) => <article className="editorial-card screening-input" key={index}><div className="card-title"><span>0{index + 1}</span><b>候选岗位</b>{jobs.length > 2 && <button onClick={() => setJobs(current => current.filter((_, i) => i !== index))}>移除</button>}</div><input value={job.title} onChange={e => updateJob(index, 'title', e.target.value)} placeholder="岗位名称"/><div className="two-fields"><input value={job.company} onChange={e => updateJob(index, 'company', e.target.value)} placeholder="公司（选填）"/><input value={job.businessUnit} onChange={e => updateJob(index, 'businessUnit', e.target.value)} placeholder="业务方向（选填）"/></div><textarea value={job.jd} onChange={e => updateJob(index, 'jd', e.target.value)} placeholder="粘贴完整 JD"/></article>)}</div>
+    {jobs.length < 6 && <button className="secondary add-job" onClick={() => setJobs(current => [...current, { title: '', company: '', businessUnit: '', jd: '' }])}>＋ 添加岗位</button>}
+    {loading && <div className="analysis-loading editorial-card"><div className="loading-copy"><b>正在比较候选岗位</b><p>统一评分口径，不生成冗长完整报告</p></div></div>}
+    {results.length > 0 && <div className="screening-results"><div className="panel-head"><div><b>岗位优先级</b><p>从更值得投入准备的岗位开始</p></div><span>{results.length} 个岗位</span></div>{results.map((item, index) => <article className="editorial-card screening-result" key={`${item.jd_index}-${item.title}`}><div className="screening-rank"><span>#{index + 1}</span><strong>{item.score}</strong><small>匹配分</small></div><div className="screening-copy"><small>{item.priority}</small><h3>{item.title}{item.company ? ` · ${item.company}` : ''}</h3><p>{item.verdict}</p><div className="screening-points"><div><label>主要匹配点</label>{item.match_points.map(point => <span key={point}>✓ {point}</span>)}</div><div><label>关键缺口</label>{item.gaps.map(gap => <span key={gap}>— {gap}</span>)}</div></div></div><button className="primary" onClick={() => deepAnalyze(item)} disabled={deepLoading >= 0}>{deepLoading === item.jd_index ? '生成中…' : '深入分析'}</button></article>)}</div>}
   </section>;
 }
 
@@ -720,7 +771,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
   const loadingSteps = ['读取简历证据', '解析目标 JD', '评估能力缺口', '生成申请策略'];
 
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading || rewriteLoading}>返回首页</button><button className="secondary" onClick={onOpenHistory} disabled={loading || rewriteLoading}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
       <div><small>STEP 01 / INPUT</small><h2>导入简历，匹配目标岗位</h2><p>填写岗位信息并粘贴 JD，生成岗位匹配报告</p></div>
       <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'}</button></div>
@@ -836,7 +887,7 @@ function RewritePage({ onBack }) {
 }
 
 const trimUiEnd = (value) => String(value || '').trim().replace(/[。.]$/g, '');
-const matchLabelText = (level) => ({ 强: '强匹配', 中: '部分匹配', 弱: '弱匹配' }[level] || `${level || '中'}匹配`);
+const matchLabelText = level => ({ 强: '直接证据', 中: '可迁移证据', 弱: '证据较弱', 直接证据: '直接证据', 可迁移证据: '可迁移证据', 无相关证据: '暂无相关证据' }[level] || level || '待核对');
 const cleanDiagnosis = value => trimUiEnd(value)
   .replace(/引用包含概括或组合片段，?需以原文为准复核/g, '')
   .replace(/^[；;，,。\.\s]+/g, '')
@@ -887,9 +938,11 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
       <div className="report-status"><span>报告状态</span><b>已保存到历史报告</b></div>
     </div>
 
-    <div className="decision-hero editorial-card">
+    <div className="workspace-tabs" aria-label="投递工作台"><a href="#match">匹配结论</a><a href="#resume-plan">简历优化</a><a href="#action-plan">行动清单</a><a href="#interview-plan">面试准备</a></div>
+
+    <div className="decision-hero editorial-card" id="match">
       <div className="decision-copy">
-        <small>APPLICATION DECISION / 申请判断</small>
+        <small>APPLICATION DECISION / 投递判断</small>
         <h2>{trimUiEnd(result.action)}</h2>
         <p>{trimUiEnd(result.summary)}</p>
         <div className="decision-tags"><span>优先级 {result.priority}</span><span>{result.position_type || '通用岗位'}</span><span>证据链匹配</span></div>
@@ -913,7 +966,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
         <div className="panel editorial-card evidence-map-v2">
           <div className="panel-head"><div><b>JD 要求与简历证据</b></div><span>逐条核对</span></div>
           {result.evidence.map((item, index) => <article className="evidence-card-v2 evidence-card-clean" key={item.req}>
-            <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${item.level === '强' ? 'strong' : item.level === '中' ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
+            <div className="evidence-card-head clean-head"><span className="row-index">0{index + 1}</span><div><small>{item.priority}</small><h3>{trimUiEnd(item.jdQuote || item.req)}</h3></div><div className="evidence-badges"><span className={`level ${['强', '直接证据'].includes(item.level) ? 'strong' : ['中', '可迁移证据'].includes(item.level) ? 'medium' : 'weak'}`}>{matchLabelText(item.level)}</span></div></div>
             <div className={`evidence-compare-grid ${String(item.resumeQuote || '').length < 120 ? 'short-evidence' : ''}`}>
               <section className="evidence-lane resume-lane"><label>简历证据</label><p>“{trimUiEnd(item.resumeQuote)}”</p></section>
               <section className="evidence-verdict"><div className="verdict-copy"><label>匹配判断</label><b>{trimUiEnd(item.proof)}</b><p>{cleanDiagnosis(item.diagnosis)}</p>{evidenceAction(item) && <div className="evidence-action"><label>具体调整建议</label><p>{evidenceAction(item)}</p></div>}</div></section>
@@ -921,18 +974,18 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
           </article>)}
         </div>
 
-        <div className="panel compact editorial-card result-gaps"><div className="panel-head"><b>关键能力缺口</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
+        <div className="panel compact editorial-card result-gaps"><div className="panel-head"><b>优先补强项</b></div>{result.gaps.map(g => <div className="gap" key={g.title}><span className={g.level === '高' ? 'high' : 'medium'}>{g.level}</span><div><b>{trimUiEnd(g.title)}</b><p>{trimUiEnd(g.desc)}</p></div></div>)}</div>
 
-        <div className="panel editorial-card action-plan-v2">
-          <div className="panel-head"><div><b>投递前行动清单</b></div><span>优先级 {result.priority}</span></div>
+        <div className="panel editorial-card action-plan-v2" id="action-plan">
+          <div className="panel-head"><div><b>投递准备清单</b></div><span>当前优先级 {result.priority}</span></div>
           <div className="action-list-v2">{result.actions.map((item, index) => <div key={item.title}><span>0{index + 1}</span><section><b>{trimUiEnd(item.title)}</b><p>{trimUiEnd(item.desc)}</p></section><em>{item.effort}</em></div>)}</div>
         </div>
 
-        <div className="panel editorial-card rewrite-panel-v2"><div className="panel-head"><div><b>简历表达优化</b></div><span>{reportRewrites(result).length} 条高优先级</span></div>{reportRewrites(result).map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{trimUiEnd(r.before)}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{trimUiEnd(r.after)}</p></div></div>)}</div>
+        <div className="panel editorial-card rewrite-panel-v2" id="resume-plan"><div className="panel-head"><div><b>针对岗位优化简历</b></div><span>{reportRewrites(result).length} 条高优先级</span></div>{reportRewrites(result).map((r, i) => <div className="rewrite-row" key={i}><div><label>当前表达</label><p>{trimUiEnd(r.before)}</p></div><ChevronRight size={18}/><div className="after"><label>建议表达</label><p>{trimUiEnd(r.after)}</p></div></div>)}</div>
 
-        <div className="panel compact editorial-card question-panel result-questions"><div className="panel-head"><b>面试重点追问</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
+        <div className="panel compact editorial-card question-panel result-questions" id="interview-plan"><div className="panel-head"><b>面试准备</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
 
-        <div className="decision-card result-next-step"><small>下一步</small><h3>先补强证据，再提交申请</h3><p>报告已保存，可继续分析其他岗位，再进入多岗位对比看投递优先级</p><button className="primary" onClick={onCompare}>加入多岗位对比</button></div>
+        <div className="decision-card result-next-step"><small>NEXT STEP / 下一步</small><h3>按优先级完成准备，再决定投递节奏</h3><p>你可以继续筛选其他岗位，确认最值得投入准备的机会</p><button className="primary" onClick={onCompare}>对比其他岗位</button></div>
       </main>
     </div>
   </section>;
@@ -1155,7 +1208,8 @@ function App() {
   };
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
-  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'screening') return withAuth(<JobScreening token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} />);
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);

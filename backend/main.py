@@ -203,7 +203,15 @@ class Evidence(BaseModel):
 
     @validator("level")
     def validate_level(cls, value: str) -> str:
-        return value if value in ("强", "中", "弱") else "中"
+        mapping = {
+            "强": "直接证据",
+            "中": "可迁移证据",
+            "弱": "可迁移证据",
+            "直接证据": "直接证据",
+            "可迁移证据": "可迁移证据",
+            "无相关证据": "无相关证据",
+        }
+        return mapping.get(value, "可迁移证据")
 
 
 class Gap(BaseModel):
@@ -259,6 +267,40 @@ class AnalysisJobStatus(BaseModel):
     error: str = ""
     created_at: int
     updated_at: int
+
+
+class ScreeningJD(BaseModel):
+    title: str = Field(..., min_length=2, max_length=120)
+    jd: str = Field(..., min_length=50, max_length=30000)
+    company: str = Field("", max_length=120)
+    business_unit: str = Field("", max_length=120)
+
+
+class ScreeningRequest(BaseModel):
+    resume: str = Field(..., min_length=80, max_length=50000)
+    jds: List[ScreeningJD]
+
+    @validator("jds")
+    def validate_jd_count(cls, value: List[ScreeningJD]) -> List[ScreeningJD]:
+        if len(value) < 2 or len(value) > 6:
+            raise ValueError("请添加 2–6 个岗位")
+        return value
+
+
+class ScreeningMatch(BaseModel):
+    jd_index: int
+    title: str
+    company: str = ""
+    score: int = Field(..., ge=0, le=100)
+    priority: str
+    verdict: str
+    match_points: List[str]
+    gaps: List[str]
+
+
+class ScreeningResponse(BaseModel):
+    results: List[ScreeningMatch]
+    model: str
 
 
 class HealthResponse(BaseModel):
@@ -844,7 +886,7 @@ def build_system_prompt() -> str:
 
 必须遵守：
 1. 只能使用用户提供的简历与 JD，不得编造经历、数据、职责、工具或结果。
-2. jdQuote 必须逐字引用 JD 中真实存在的片段；resumeQuote 必须逐字引用简历中真实存在的片段。
+2. jdQuote 必须引用 JD 中真实存在的片段；resumeQuote 必须引用简历中真实存在的最短完整片段。语义相关但场景不完全一致的经历应标记为“可迁移证据”，不要因为不是同岗位或措辞不同就写成无证据。
 3. 按 /job-match 方法拆解：先识别硬性门槛，再看核心职责、能力要求、加分项和申请约束。公司与业务方向用于理解行业、产品形态、客户类型、商业模式和工作场景，并帮助判断 JD 中同一能力在具体岗位场景下的含义；这些信息可以影响证据、缺口、行动、改写和面试问题的优先级，但不得作为简历证据、独立加分项或单独评分维度，也无需在报告中额外声明。
 4. 每项要求的状态必须在诊断中明确区分：已匹配、表达缺口、证据不足、真实缺口、待确认。
 5. 区分三类问题：真实能力缺口、已有能力但证据不足、仅表达方式不佳。
@@ -886,7 +928,7 @@ JSON 必须严格包含：
     {"name":"关键词与表达","value":0到100整数,"note":"评分依据","bonus_evidence":["加分证据"],"deduction_reason":"扣分原因","remedy":"补救建议"}
   ],
   "summary":"申请建议的核心判断，2到3句",
-  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD逐字原文","proof":"匹配判断","resumeQuote":"简历逐字原文；没有证据时写无直接证据","level":"强/中/弱","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须同时结合该条JD原文和简历证据，指出具体改哪句话、补哪项事实或如何改写；无法给出具体动作时留空"}],
+  "evidence":[{"req":"岗位要求","priority":"硬性门槛/核心要求/能力门槛/加分要求","jdQuote":"JD原文片段","proof":"匹配判断","resumeQuote":"简历中真实存在的原文片段；完全没有相关经历时写无相关证据","level":"直接证据/可迁移证据/无相关证据","confidence":0到100整数,"diagnosis":"以 已匹配/表达缺口/证据不足/真实缺口/待确认 开头，再说明原因","suggestion":"必须同时结合该条JD原文和简历证据，指出具体改哪句话、补哪项事实或如何改写；无法给出具体动作时留空"}],
   "gaps":[{"level":"高/中/低","title":"缺口标题","desc":"具体说明"}],
   "actions":[{"title":"行动标题","desc":"可执行步骤","effort":"预计时间"}],
   "rewrites":[{"before":"简历逐字原文","after":"基于同一事实的建议表达"}],
@@ -953,12 +995,21 @@ def normalize_dimensions(raw_dimensions: List[Dimension]) -> List[Dimension]:
     return normalized
 
 
-def quote_is_grounded(quote: str, source: str) -> bool:
-    normalized_quote = re.sub(r"\s+", "", quote.replace("“", "").replace("”", ""))
+def grounded_excerpt(quote: str, source: str) -> Optional[str]:
+    if quote in ("无直接证据", "无相关证据"):
+        return None
     normalized_source = re.sub(r"\s+", "", source)
-    if quote == "无直接证据":
-        return True
-    return len(normalized_quote) >= 4 and normalized_quote in normalized_source
+    candidates = [quote] + re.split(r"[；;。！？!?，,\n]", quote)
+    for candidate in sorted(candidates, key=len, reverse=True):
+        cleaned = candidate.strip().strip("“”\"'")
+        normalized = re.sub(r"\s+", "", cleaned)
+        if len(normalized) >= 4 and normalized in normalized_source:
+            return cleaned
+    return None
+
+
+def quote_is_grounded(quote: str, source: str) -> bool:
+    return grounded_excerpt(quote, source) is not None
 
 
 def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> AnalysisResult:
@@ -967,29 +1018,35 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
 
     checked_evidence: List[Evidence] = []
     for item in payload.evidence[:6]:
-        jd_grounded = quote_is_grounded(item.jdQuote, request.jd)
-        resume_grounded = quote_is_grounded(item.resumeQuote, request.resume)
-        if not jd_grounded or not resume_grounded:
+        jd_excerpt = grounded_excerpt(item.jdQuote, request.jd)
+        resume_excerpt = grounded_excerpt(item.resumeQuote, request.resume)
+        if jd_excerpt:
+            item.jdQuote = jd_excerpt
+        if resume_excerpt:
+            item.resumeQuote = resume_excerpt
+            if item.level == "无相关证据":
+                item.level = "可迁移证据"
+        else:
+            item.resumeQuote = "无相关证据"
+            item.level = "无相关证据"
             item.confidence = min(item.confidence, 55)
-            if item.level == "强":
-                item.level = "中"
-            if not resume_grounded:
-                item.resumeQuote = "无直接证据"
-                if not item.diagnosis.startswith("证据不足"):
-                    item.diagnosis = "证据不足：" + item.diagnosis
+            if not item.diagnosis.startswith(("证据不足", "真实缺口")):
+                item.diagnosis = "证据不足：" + item.diagnosis
+        if not jd_excerpt:
+            item.confidence = min(item.confidence, 55)
         checked_evidence.append(item)
 
     if score >= 82:
-        action = "建议优先投递"
+        action = "值得优先投递"
         priority = "A"
     elif score >= 74:
-        action = "建议准备后投递"
+        action = "值得投递，先完成关键准备"
         priority = "A-"
     elif score >= 64:
-        action = "建议针对性补强后投递"
+        action = "可以投递，建议先补强核心证据"
         priority = "B"
     else:
-        action = "建议谨慎投递"
+        action = "暂不优先，先补齐关键条件"
         priority = "C"
 
     context_parts = [request.company, request.business_unit, request.target]
@@ -1067,6 +1124,47 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         status_code=502,
         detail="模型返回内容未通过报告结构校验，请稍后重试。",
     ) from last_error
+
+
+async def request_screening(request: ScreeningRequest) -> ScreeningResponse:
+    api_key = get_secret("SILICONFLOW_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI service is not configured")
+    jobs = "\n\n".join(
+        "[岗位 {0}]\n岗位名：{1}\n公司：{2}\n方向：{3}\nJD：\n{4}".format(
+            index, item.title, item.company or "未提供", item.business_unit or "未提供", item.jd
+        )
+        for index, item in enumerate(request.jds)
+    )
+    system_prompt = """你是 Eviden 的多岗位筛选引擎。比较同一份简历与多个 JD，帮助用户决定先投哪个岗位。只依据简历与 JD，不得编造。所有岗位使用同一评分口径。输出一个 JSON 对象：{\"results\":[{\"jd_index\":0,\"title\":\"岗位名\",\"company\":\"公司\",\"score\":0,\"priority\":\"优先探索/值得尝试/暂不优先\",\"verdict\":\"一句话判断\",\"match_points\":[\"最多3项\"],\"gaps\":[\"最多2项\"]}]}。必须覆盖每个输入岗位并按 score 从高到低排序。不要输出 Markdown。"""
+    user_prompt = "【简历原文】\n{0}\n\n【候选岗位】\n{1}".format(request.resume, jobs)
+    payload = {
+        "model": model_name(),
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+        "temperature": 0,
+        "max_tokens": 3200,
+        "enable_thinking": False,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        timeout = httpx.Timeout(130.0, connect=15.0)
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(
+                "{0}/chat/completions".format(api_base_url().rstrip("/")),
+                headers={"Authorization": "Bearer {0}".format(api_key), "Content-Type": "application/json"},
+                json=payload,
+            )
+        if response.status_code >= 400:
+            raise RuntimeError("SiliconFlow error {0}".format(response.status_code))
+        parsed = extract_json(response.json()["choices"][0]["message"]["content"])
+        results = [ScreeningMatch.parse_obj(item) for item in parsed.get("results", [])]
+        if len(results) != len(request.jds):
+            raise ValueError("岗位筛选结果数量不完整")
+        return ScreeningResponse(results=sorted(results, key=lambda item: item.score, reverse=True), model=model_name())
+    except Exception as error:
+        LOGGER.warning("job screening failed: %s", error)
+        raise HTTPException(status_code=502, detail="岗位筛选暂时没有完成，请重新生成。") from error
 
 
 async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewriteResult:
@@ -1392,6 +1490,11 @@ async def get_analysis_job_handler(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="生成任务不存在或已失效。")
     return analysis_job_response(job_id, job)
+
+
+@app.post("/api/screen-jobs", response_model=ScreeningResponse)
+async def screen_jobs_handler(request: ScreeningRequest):
+    return await request_screening(request)
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)
