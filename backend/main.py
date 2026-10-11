@@ -1390,7 +1390,7 @@ async def create_analysis_job_handler(
 
 @app.get("/api/analysis-jobs/active", response_model=Optional[AnalysisJobStatus])
 async def active_analysis_job_handler(user: UserInfo = Depends(current_user)):
-    row = query_one(
+    row = fetch_one(
         """
         SELECT id, status, result_json, error, created_at, updated_at
         FROM analysis_jobs
@@ -1404,7 +1404,7 @@ async def active_analysis_job_handler(user: UserInfo = Depends(current_user)):
 
 @app.get("/api/analysis-jobs/{job_id}", response_model=AnalysisJobStatus)
 async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
-    row = query_one(
+    row = fetch_one(
         """
         SELECT id, status, result_json, error, created_at, updated_at
         FROM analysis_jobs WHERE id = ? AND user_id = ?
