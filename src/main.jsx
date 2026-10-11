@@ -1240,7 +1240,7 @@ function App() {
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setRewriteContext(context); go('rewrite'); }} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
-  return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
+  return withAuth(<ResultPage result={result} onBack={backFromCurrent} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }
 
 createRoot(document.getElementById('root')).render(<App />);
