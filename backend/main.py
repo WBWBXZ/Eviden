@@ -51,6 +51,10 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
+ANALYSIS_PROMPT_VERSION = "evidence-chain-v2"
+_ANALYSIS_CACHE: Dict[str, tuple] = {}
+_ANALYSIS_CACHE_TTL_SECONDS = 60 * 60 * 6
+_ANALYSIS_CACHE_MAX_ITEMS = 64
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -808,6 +812,9 @@ def build_system_prompt() -> str:
 9. 每个维度必须给出加分证据、扣分原因和补救建议，让用户能判断分数是否合理。
 10. 改写建议必须遵循 ASu-skills 中 /great-resume 的原则：只做事实重组、岗位化表达和证据边界提示，不把待确认内容写成事实。
 11. 只返回一个 JSON 对象，不要 Markdown、解释、代码围栏或额外文字。
+12. evidence 中每一项的 proof、diagnosis 和 suggestion 必须围绕同一条 JD 要求、同一份简历证据得出，调整建议不得跳到其他能力或凭空新增项目。
+13. 评分前先区分硬性门槛、核心要求与加分要求：加分项缺失不得当作硬性缺口重复扣分；已有相邻场景的可迁移证据时，应在“业务场景匹配”中如实反映，而不是按完全无经验处理。
+14. 总分区间必须与证据结论一致：82–100 表示核心要求基本都有直接强证据且无关键缺口；64–81 表示核心能力大体可迁移但仍有重要证据或场景缺口；45–63 表示多个核心要求缺少直接证据；0–44 仅用于硬性门槛明显不满足。不要为了迎合用户抬高分数。
 
 通用评分标准：
 - 核心能力匹配 30%：JD 最关键的能力要求，简历里是否有直接对应的经历、技能和项目证据。
@@ -968,7 +975,36 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
     )
 
 
+def analysis_cache_key(request: AnalyzeRequest) -> str:
+    payload = json.dumps(request.dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    source = "{0}\n{1}\n{2}".format(ANALYSIS_PROMPT_VERSION, model_name(), payload)
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def get_cached_analysis(cache_key: str) -> Optional[AnalysisPayload]:
+    cached = _ANALYSIS_CACHE.get(cache_key)
+    if not cached:
+        return None
+    created_at, payload = cached
+    if time.time() - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
+        _ANALYSIS_CACHE.pop(cache_key, None)
+        return None
+    return AnalysisPayload.parse_obj(payload)
+
+
+def cache_analysis(cache_key: str, payload: AnalysisPayload) -> None:
+    if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_ITEMS:
+        oldest_key = min(_ANALYSIS_CACHE, key=lambda key: _ANALYSIS_CACHE[key][0])
+        _ANALYSIS_CACHE.pop(oldest_key, None)
+    _ANALYSIS_CACHE[cache_key] = (time.time(), payload.dict())
+
+
 async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
+    cache_key = analysis_cache_key(request)
+    cached = get_cached_analysis(cache_key)
+    if cached is not None:
+        return cached
+
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
@@ -997,7 +1033,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
         if use_json_format:
             payload["response_format"] = {"type": "json_object"}
         try:
-            timeout = httpx.Timeout(90.0, connect=15.0)
+            timeout = httpx.Timeout(130.0, connect=15.0)
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 response = await client.post(
                     "{0}/chat/completions".format(api_base_url().rstrip("/")),
@@ -1009,7 +1045,9 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
                 raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, detail))
             response_data = response.json()
             content = response_data["choices"][0]["message"]["content"]
-            return AnalysisPayload.parse_obj(extract_json(content))
+            result = AnalysisPayload.parse_obj(extract_json(content))
+            cache_analysis(cache_key, result)
+            return result
         except Exception as error:
             last_error = error
             LOGGER.warning("AI analysis attempt failed: %s", error)

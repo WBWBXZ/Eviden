@@ -251,7 +251,7 @@ async function requestModelJson(path, body, fallbackMessage) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const attemptStartedAt = Date.now();
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 90000);
+    const timer = window.setTimeout(() => controller.abort(), 150000);
     try {
       const response = await fetch(`${API_BASE_URL}${path}`, {
         method: 'POST',
@@ -273,7 +273,7 @@ async function requestModelJson(path, body, fallbackMessage) {
       if (![502, 504].includes(response.status) || attempt === 1) throw error;
       lastError = error;
     } catch (error) {
-      const requestRanLong = Date.now() - attemptStartedAt > 30000;
+      const requestRanLong = Date.now() - attemptStartedAt > 60000;
       if (error.status || attempt === 1 || requestRanLong) {
         if (!error.status) throw new Error('生成服务连接超时，请重新生成。');
         throw error;
