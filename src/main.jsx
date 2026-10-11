@@ -919,7 +919,16 @@ const reportRewrites = result => {
   return rewrites.slice(0, 3);
 };
 
+const reportNextStep = result => {
+  const action = result.actions?.[0];
+  if (action) return { title: trimUiEnd(action.title), detail: shortText(trimUiEnd(action.desc), 76) };
+  const gap = result.gaps?.[0];
+  if (gap) return { title: `优先补强：${trimUiEnd(gap.title)}`, detail: trimUiEnd(gap.detail || gap.desc || '围绕这一缺口补充可验证的项目证据') };
+  return { title: '整理投递材料', detail: '核对简历与岗位要求后，开始准备投递' };
+};
+
 function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
+  const nextStep = reportNextStep(result);
   return <section className="workspace result-page result-v2">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回上一步</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
@@ -977,7 +986,7 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
 
         <div className="panel compact editorial-card question-panel result-questions" id="interview-plan"><div className="panel-head"><b>面试准备</b></div>{reportQuestions(result).map((question, index) => <div className="question" key={`${index}-${question}`}><span>Q{index + 1}</span><p>{trimUiEnd(question)}</p></div>)}</div>
 
-        <div className="decision-card result-next-step"><small>NEXT STEP / 下一步</small><h3>继续比较机会</h3><button className="primary" onClick={onCompare}>对比其他岗位</button></div>
+        <div className="decision-card result-next-step"><small>NEXT STEP / 下一步</small><h3>{nextStep.title}</h3><p>{nextStep.detail}</p><button className="primary" onClick={() => document.getElementById('action-plan')?.scrollIntoView({ behavior: 'smooth' })}>查看准备清单</button></div>
       </main>
     </div>
   </section>;
