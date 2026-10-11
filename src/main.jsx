@@ -1158,12 +1158,17 @@ function App() {
       go(nextStep);
       setPendingStep('');
     }
-    Promise.allSettled(localRecords.map(record => saveCloudReport(auth.token, record)))
+    Promise.allSettled([...localRecords, ...localScreenings].map(record => saveCloudReport(auth.token, record)))
       .then(() => fetchCloudReports(auth.token))
       .then(cloud => {
-        const merged = mergeHistory(localRecords, cloud.reports || []);
+        const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening');
+        const cloudScreenings = (cloud.reports || []).filter(item => item.record?.kind === 'screening');
+        const merged = mergeHistory(localRecords, cloudRecords);
+        const mergedScreenings = mergeHistory(localScreenings, cloudScreenings);
         setHistory(merged);
+        setScreeningHistory(mergedScreenings);
         persistHistory(merged, auth.user.id);
+        persistScreeningHistory(mergedScreenings, auth.user.id);
       })
       .catch(err => console.warn('sync history failed', err));
   };
@@ -1175,6 +1180,8 @@ function App() {
     setToken('');
     setUser(null);
     setHistory([]);
+    setScreeningHistory([]);
+    setSelectedScreening(null);
     setCompareRecords([]);
     setResult(null);
     setShowLogoutConfirm(false);
