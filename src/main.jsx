@@ -547,7 +547,7 @@ function JobScreening({ token, user, onBack, onAnalyze, onStart, onSaveScreening
       const nextResults = (data.results || []).map(item => ({ ...item, priority: item.score >= 80 ? '高优先级' : item.score >= 65 ? '中优先级' : '低优先级' }));
       setResults(nextResults);
       setNotice(`岗位适配度对比完成，已生成 ${nextResults.length} 个岗位的推荐顺序`);
-      window.setTimeout(() => setNotice(''), 4500);
+      window.setTimeout(() => setNotice(''), 3000);
       onSaveScreening?.({ jobs: validJobs, results: nextResults, resumeName: cachedResume?.filename || '默认简历' });
       window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     }
@@ -983,6 +983,12 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
   </section>;
 }
 
+function screeningHistoryTitle(record) {
+  const count = record.results?.length || 0;
+  const highPriorityCount = (record.results || []).filter(item => item.priority === '高优先级').length;
+  return highPriorityCount ? `${count} 个岗位 · ${highPriorityCount} 个高优先级` : `${count} 个岗位 · 暂无高优先级`;
+}
+
 function HistoryPage({ records = [], screeningRecords = [], onView, onViewScreening, onDelete, onDeleteScreening, onBack, onCompare }) {
   const [tab, setTab] = useState('reports');
   const [selected, setSelected] = useState(records.slice(0, 3).map(item => item.id));
@@ -993,7 +999,7 @@ function HistoryPage({ records = [], screeningRecords = [], onView, onViewScreen
     <div className="page-head"><div><small>MY REPORTS / 我的报告</small><h2>我的报告</h2><p>查看完整岗位报告与岗位适配度对比记录</p></div></div>
     <div className="history-tabs"><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>完整报告 <span>{records.length}</span></button><button className={tab === 'screenings' ? 'active' : ''} onClick={() => setTab('screenings')}>岗位筛选 <span>{screeningRecords.length}</span></button></div>
     {tab === 'reports' && (records.length === 0 ? <div className="empty-state editorial-card"><b>还没有完整报告</b><p>完成一次简历 × JD 分析后，报告会自动保存到这里</p></div> : <div className="history-grid">{records.map(record => <article className="history-card editorial-card" key={record.id}><label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label><div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div><h3>{record.target}</h3><p>{record.result.summary}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}</div><div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看完整报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div></article>)}</div>)}
-    {tab === 'screenings' && (screeningRecords.length === 0 ? <div className="empty-state editorial-card"><b>还没有岗位筛选记录</b><p>完成一次岗位适配度对比后，结果会保存在这里</p></div> : <div className="history-grid screening-history-grid">{screeningRecords.map(record => <article className="history-card editorial-card" key={record.id}><div className="history-score"><span>岗位适配度对比</span><b>{record.results.length}</b></div><h3>岗位适配度对比</h3><p>{record.results.slice(0, 3).map(item => item.title).join('、')}{record.results.length > 3 ? ` 等 ${record.results.length} 个岗位` : ''}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.resumeName}</span></div><div className="history-actions"><button className="secondary" onClick={() => onViewScreening(record)}>继续查看</button><button className="secondary danger" onClick={() => onDeleteScreening(record.id)}>删除</button></div></article>)}</div>)}
+    {tab === 'screenings' && (screeningRecords.length === 0 ? <div className="empty-state editorial-card"><b>还没有岗位筛选记录</b><p>完成一次岗位适配度对比后，结果会保存在这里</p></div> : <div className="history-grid screening-history-grid">{screeningRecords.map(record => <article className="history-card editorial-card" key={record.id}><div className="history-score"><span>岗位适配度对比</span><b>{record.results.length}</b></div><h3>{screeningHistoryTitle(record)}</h3><p>{record.results.slice(0, 3).map(item => item.title).join('、')}{record.results.length > 3 ? ` 等 ${record.results.length} 个岗位` : ''}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.resumeName}</span></div><div className="history-actions"><button className="secondary" onClick={() => onViewScreening(record)}>继续查看</button><button className="secondary danger" onClick={() => onDeleteScreening(record.id)}>删除</button></div></article>)}</div>)}
   </section>;
 }
 
