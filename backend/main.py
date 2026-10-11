@@ -9,6 +9,7 @@ import re
 import secrets
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -27,7 +28,7 @@ except ImportError:  # pragma: no cover - SQLite fallback still works without Po
     ThreadedConnectionPool = None
 from docx import Document
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,7 +40,7 @@ load_dotenv(".env")
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_API_BASE_URL = "https://api.siliconflow.cn/v1"
-DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
+DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash"
 DEFAULT_OCR_MODEL = "Qwen/Qwen3-VL-8B-Instruct"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DB_PATH = os.path.join(DATA_DIR, "eviden.db")
@@ -51,10 +52,6 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
-ANALYSIS_PROMPT_VERSION = "evidence-chain-v2"
-_ANALYSIS_CACHE: Dict[str, tuple] = {}
-_ANALYSIS_CACHE_TTL_SECONDS = 60 * 60 * 6
-_ANALYSIS_CACHE_MAX_ITEMS = 64
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -246,6 +243,20 @@ class AnalysisResult(AnalysisPayload):
     model: str
 
 
+class AnalysisJobCreated(BaseModel):
+    job_id: str
+    status: str
+
+
+class AnalysisJobStatus(BaseModel):
+    job_id: str
+    status: str
+    result: Optional[AnalysisResult] = None
+    error: str = ""
+    created_at: int
+    updated_at: int
+
+
 class HealthResponse(BaseModel):
     ok: bool
     model: str
@@ -391,6 +402,18 @@ def init_db() -> None:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS analysis_jobs (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS user_resumes (
                 user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
                 filename TEXT NOT NULL,
@@ -438,6 +461,21 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY(id, user_id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS analysis_jobs (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                request_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
@@ -851,7 +889,7 @@ JSON 必须严格包含：
   "questions":["面试高风险追问"]
 }
 
-数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻，不要出现“如果面试官追问”“你会如何说明”之类的转述句式。每个字段保持简洁，单条说明不超过 55 个中文字符。"""
+数量要求：evidence 固定 4 项，gaps 3 项，actions 3 项，rewrites 固定 3 项，questions 固定 5 项。改写建议按重要性排序，只选择对目标岗位最关键的三条；面试问题覆盖核心能力、项目深挖、数据结果、协作推进与岗位动机，并直接使用面试官提问口吻，不要出现“如果面试官追问”“你会如何说明”之类的转述句式。内容应具体、完整，避免为了简短省略判断依据、证据边界或行动步骤。"""
 
 
 def build_user_prompt(request: AnalyzeRequest) -> str:
@@ -975,36 +1013,7 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
     )
 
 
-def analysis_cache_key(request: AnalyzeRequest) -> str:
-    payload = json.dumps(request.dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    source = "{0}\n{1}\n{2}".format(ANALYSIS_PROMPT_VERSION, model_name(), payload)
-    return hashlib.sha256(source.encode("utf-8")).hexdigest()
-
-
-def get_cached_analysis(cache_key: str) -> Optional[AnalysisPayload]:
-    cached = _ANALYSIS_CACHE.get(cache_key)
-    if not cached:
-        return None
-    created_at, payload = cached
-    if time.time() - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
-        _ANALYSIS_CACHE.pop(cache_key, None)
-        return None
-    return AnalysisPayload.parse_obj(payload)
-
-
-def cache_analysis(cache_key: str, payload: AnalysisPayload) -> None:
-    if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX_ITEMS:
-        oldest_key = min(_ANALYSIS_CACHE, key=lambda key: _ANALYSIS_CACHE[key][0])
-        _ANALYSIS_CACHE.pop(oldest_key, None)
-    _ANALYSIS_CACHE[cache_key] = (time.time(), payload.dict())
-
-
 async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
-    cache_key = analysis_cache_key(request)
-    cached = get_cached_analysis(cache_key)
-    if cached is not None:
-        return cached
-
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
@@ -1045,9 +1054,7 @@ async def request_analysis(request: AnalyzeRequest) -> AnalysisPayload:
                 raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, detail))
             response_data = response.json()
             content = response_data["choices"][0]["message"]["content"]
-            result = AnalysisPayload.parse_obj(extract_json(content))
-            cache_analysis(cache_key, result)
-            return result
+            return AnalysisPayload.parse_obj(extract_json(content))
         except Exception as error:
             last_error = error
             LOGGER.warning("AI analysis attempt failed: %s", error)
@@ -1319,6 +1326,89 @@ async def parse_resume_json_handler(request: ResumeParseJsonRequest):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="简历文件读取失败，请重新选择文件。")
     return await parse_resume_content(request.filename, content)
+
+
+async def process_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
+    now = int(time.time())
+    execute_sql(
+        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ?",
+        ("processing", now, job_id),
+    )
+    try:
+        payload = await request_analysis(request)
+        result = normalize_result(payload, request)
+        now = int(time.time())
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?",
+            ("completed", json.dumps(result.dict(), ensure_ascii=False), "", now, job_id),
+        )
+    except Exception as error:
+        LOGGER.exception("analysis job failed: %s", job_id)
+        detail = getattr(error, "detail", "") or "报告生成失败，请重新生成。"
+        now = int(time.time())
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?",
+            ("failed", str(detail)[:500], now, job_id),
+        )
+
+
+def analysis_job_response(row: Dict[str, Any]) -> AnalysisJobStatus:
+    result_json = row.get("result_json")
+    return AnalysisJobStatus(
+        job_id=str(row["id"]),
+        status=str(row["status"]),
+        result=AnalysisResult.parse_obj(json.loads(result_json)) if result_json else None,
+        error=str(row.get("error") or ""),
+        created_at=int(row["created_at"]),
+        updated_at=int(row["updated_at"]),
+    )
+
+
+@app.post("/api/analysis-jobs", response_model=AnalysisJobCreated)
+async def create_analysis_job_handler(
+    request: AnalyzeRequest,
+    background_tasks: BackgroundTasks,
+    user: UserInfo = Depends(current_user),
+):
+    job_id = "analysis-{0}".format(uuid.uuid4().hex)
+    now = int(time.time())
+    execute_sql(
+        """
+        INSERT INTO analysis_jobs(id, user_id, status, request_json, result_json, error, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (job_id, user.id, "queued", json.dumps(request.dict(), ensure_ascii=False), None, "", now, now),
+    )
+    background_tasks.add_task(process_analysis_job, job_id, request)
+    return AnalysisJobCreated(job_id=job_id, status="queued")
+
+
+@app.get("/api/analysis-jobs/active", response_model=Optional[AnalysisJobStatus])
+async def active_analysis_job_handler(user: UserInfo = Depends(current_user)):
+    row = query_one(
+        """
+        SELECT id, status, result_json, error, created_at, updated_at
+        FROM analysis_jobs
+        WHERE user_id = ? AND status IN ('queued', 'processing')
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (user.id,),
+    )
+    return analysis_job_response(row) if row else None
+
+
+@app.get("/api/analysis-jobs/{job_id}", response_model=AnalysisJobStatus)
+async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
+    row = query_one(
+        """
+        SELECT id, status, result_json, error, created_at, updated_at
+        FROM analysis_jobs WHERE id = ? AND user_id = ?
+        """,
+        (job_id, user.id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="生成任务不存在或已失效。")
+    return analysis_job_response(row)
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)

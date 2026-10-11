@@ -44,6 +44,7 @@ const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
 const AUTH_USER_KEY = 'eviden.auth.user.v1';
 const DELETED_REPORTS_KEY = 'eviden.deleted.reports.v1';
 const DEFAULT_RESUME_KEY_PREFIX = 'eviden.default-resume.v1';
+const PENDING_ANALYSIS_KEY = 'eviden.pending-analysis.v1';
 
 function defaultResumeCacheKey(userId) {
   return `${DEFAULT_RESUME_KEY_PREFIX}.${encodeURIComponent(String(userId))}`;
@@ -287,14 +288,55 @@ async function requestModelJson(path, body, fallbackMessage) {
   throw lastError || new Error(fallbackMessage);
 }
 
-async function requestAnalysis({ resume, jd, target, company, businessUnit }) {
-  return requestModelJson('/api/analyze', {
-    resume,
-    jd,
-    target,
-    company,
-    business_unit: businessUnit,
-  }, '分析失败，请稍后重试。');
+const wait = ms => new Promise(resolve => window.setTimeout(resolve, ms));
+
+async function pollAnalysisJob(jobId, token) {
+  let consecutiveErrors = 0;
+  for (;;) {
+    try {
+      const job = await apiJson(`/api/analysis-jobs/${encodeURIComponent(jobId)}`, { token });
+      consecutiveErrors = 0;
+      if (job.status === 'completed' && job.result) return job.result;
+      if (job.status === 'failed') {
+        const failure = new Error(job.error || '报告生成失败，请重新生成。');
+        failure.jobFailed = true;
+        throw failure;
+      }
+    } catch (error) {
+      if (error.status || error.jobFailed) throw error;
+      consecutiveErrors += 1;
+      if (consecutiveErrors >= 10) throw new Error('暂时无法查询生成进度，任务仍会在后台继续。请稍后刷新页面查看。');
+    }
+    await wait(2000);
+  }
+}
+
+async function requestAnalysis(input, token) {
+  const body = {
+    resume: input.resume,
+    jd: input.jd,
+    target: input.target,
+    company: input.company,
+    business_unit: input.businessUnit,
+  };
+  const job = await apiJson('/api/analysis-jobs', { method: 'POST', token, body });
+  localStorage.setItem(PENDING_ANALYSIS_KEY, JSON.stringify({ jobId: job.job_id, input }));
+  try {
+    const result = await pollAnalysisJob(job.job_id, token);
+    localStorage.removeItem(PENDING_ANALYSIS_KEY);
+    return result;
+  } catch (error) {
+    if (error.status || !String(error.message || '').includes('后台继续')) localStorage.removeItem(PENDING_ANALYSIS_KEY);
+    throw error;
+  }
+}
+
+async function resumePendingAnalysis(token) {
+  const pending = safeParse(localStorage.getItem(PENDING_ANALYSIS_KEY), null);
+  if (!pending?.jobId || !pending?.input) return null;
+  const result = await pollAnalysisJob(pending.jobId, token);
+  localStorage.removeItem(PENDING_ANALYSIS_KEY);
+  return { result, input: pending.input };
 }
 
 async function requestResumeParse(file) {
@@ -532,6 +574,24 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     };
   }, [token, user?.id]);
 
+  useEffect(() => {
+    if (!token || !localStorage.getItem(PENDING_ANALYSIS_KEY)) return undefined;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    resumePendingAnalysis(token)
+      .then(pending => {
+        if (!cancelled && pending) onAnalyze(pending.result, pending.input);
+      })
+      .catch(err => {
+        if (!cancelled) setError(err.message || '暂时无法恢复后台生成任务，请稍后刷新页面。');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [token]);
+
   const submit = async () => {
     if (loading || parseStatus === 'parsing') return;
     if (!resume.trim()) {
@@ -549,8 +609,9 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     setLoading(true);
     setError('');
     try {
-      const result = await requestAnalysis({ resume, jd, target, company, businessUnit });
-      onAnalyze(result, { resume, jd, target, company, businessUnit, resumeFileName: resumeFileName || resumeFile?.name });
+      const input = { resume, jd, target, company, businessUnit, resumeFileName: resumeFileName || resumeFile?.name };
+      const result = await requestAnalysis(input, token);
+      onAnalyze(result, input);
     } catch (err) {
       setError(err.message || '分析失败，请稍后重试。');
     } finally {
@@ -666,7 +727,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
     </div>
     {loading && <div className="analysis-loading editorial-card" aria-live="polite">
       <div className="loading-orbit"><span></span><i></i><i></i><i></i></div>
-      <div className="loading-copy"><b>正在生成匹配报告</b><p>正在核对 JD 要求、简历原文与申请动作</p></div>
+      <div className="loading-copy"><b>报告正在后台生成</b><p>你可以离开当前页面，完成后重新打开也能继续查看</p></div>
       <div className="loading-steps">{loadingSteps.map((step, index) => <span key={step} style={{ animationDelay: `${index * 0.45}s` }}>{step}</span>)}</div>
     </div>}
     {rewriteLoading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在优化简历表达</b><p>基于原文事实重组经历表达，不新增未经证实的信息</p></div><div className="loading-steps"><span>识别经历主线</span><span>重写项目表达</span><span>校验证据边界</span></div></div>}
@@ -944,7 +1005,7 @@ function mergeHistory(localRecords, cloudReports) {
 }
 
 function App() {
-  const [step, setStep] = useState('landing');
+  const [step, setStep] = useState(() => localStorage.getItem(PENDING_ANALYSIS_KEY) ? 'input' : 'landing');
   const [previousStep, setPreviousStep] = useState('landing');
   const [result, setResult] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
@@ -1039,6 +1100,7 @@ function App() {
   const confirmLogout = () => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(PENDING_ANALYSIS_KEY);
     setToken('');
     setUser(null);
     setHistory([]);
