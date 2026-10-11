@@ -48,6 +48,10 @@ const PENDING_ANALYSIS_KEY = 'eviden.pending-analysis.v1';
 const SCREENING_HISTORY_KEY = 'eviden.screening.history.v1';
 const SCREENING_HISTORY_OWNER_KEY = 'eviden.screening.history.owner.v1';
 
+function safeParse(value, fallback) {
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
 function defaultResumeCacheKey(userId) {
   return `${DEFAULT_RESUME_KEY_PREFIX}.${encodeURIComponent(String(userId))}`;
 }
