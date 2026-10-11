@@ -45,6 +45,8 @@ const AUTH_USER_KEY = 'eviden.auth.user.v1';
 const DELETED_REPORTS_KEY = 'eviden.deleted.reports.v1';
 const DEFAULT_RESUME_KEY_PREFIX = 'eviden.default-resume.v1';
 const PENDING_ANALYSIS_KEY = 'eviden.pending-analysis.v1';
+const SCREENING_HISTORY_KEY = 'eviden.screening.history.v1';
+const SCREENING_HISTORY_OWNER_KEY = 'eviden.screening.history.owner.v1';
 
 function defaultResumeCacheKey(userId) {
   return `${DEFAULT_RESUME_KEY_PREFIX}.${encodeURIComponent(String(userId))}`;
@@ -103,6 +105,17 @@ function getHistoryForUser(userId) {
   const ownerId = localStorage.getItem(HISTORY_OWNER_KEY);
   if (ownerId && ownerId !== String(userId)) return [];
   return getStoredHistory();
+}
+
+function getScreeningHistoryForUser(userId) {
+  const ownerId = localStorage.getItem(SCREENING_HISTORY_OWNER_KEY);
+  if (ownerId && ownerId !== String(userId)) return [];
+  return safeParse(localStorage.getItem(SCREENING_HISTORY_KEY), []);
+}
+
+function persistScreeningHistory(records, ownerId) {
+  localStorage.setItem(SCREENING_HISTORY_KEY, JSON.stringify(records.slice(0, 20)));
+  if (ownerId) localStorage.setItem(SCREENING_HISTORY_OWNER_KEY, String(ownerId));
 }
 
 function getDeletedReportIds() {
@@ -459,7 +472,7 @@ function Landing({ onStart, onScreenJobs, onOpenHistory, historyCount, user, lat
     <nav className="nav product-nav">
       <Brand />
       <div className="nav-right">
-        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onStart}>开始分析</button></div>
+        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onStart}>开始分析</button></div>
         <div className="account-entry">{user ? <button onClick={onLogout}>退出登录</button> : <button onClick={onAuth}>登录</button>}</div>
       </div>
     </nav>
@@ -476,7 +489,6 @@ function Landing({ onStart, onScreenJobs, onOpenHistory, historyCount, user, lat
         </div>
         <div className="hero-actions product-actions">
           <button className="primary" onClick={onStart}>开始分析 <ArrowRight size={18}/></button>
-          <button className="secondary" onClick={onScreenJobs}>筛选多个岗位</button>
           <button className="secondary" onClick={onOpenHistory}>查看历史报告</button>
         </div>
       </div>
@@ -505,25 +517,34 @@ function Landing({ onStart, onScreenJobs, onOpenHistory, historyCount, user, lat
   </section>;
 }
 
-function JobScreening({ token, user, onBack, onAnalyze, onStart }) {
+function JobScreening({ token, user, onBack, onAnalyze, onStart, onSaveScreening, initialRecord }) {
   const cachedResume = getCachedDefaultResume(user?.id);
   const resume = cachedResume?.resume_text || '';
-  const [jobs, setJobs] = useState([
+  const [jobs, setJobs] = useState(() => initialRecord?.jobs || [
     { title: '', company: '', businessUnit: '', jd: '' },
     { title: '', company: '', businessUnit: '', jd: '' },
     { title: '', company: '', businessUnit: '', jd: '' },
   ]);
-  const [results, setResults] = useState([]);
+  const [results, setResults] = useState(() => initialRecord?.results || []);
   const [loading, setLoading] = useState(false);
   const [deepLoading, setDeepLoading] = useState(-1);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const resultsRef = useRef(null);
   const updateJob = (index, field, value) => setJobs(current => current.map((job, i) => i === index ? { ...job, [field]: value } : job));
   const validJobs = jobs.filter(job => job.title.trim().length >= 2 && job.jd.trim().length >= 50);
   const screen = async () => {
     if (!resume) return setError('请先在单岗位分析中上传默认简历。');
     if (validJobs.length < 2) return setError('请至少完整填写 2 个岗位。');
     setLoading(true); setError(''); setResults([]);
-    try { const data = await requestJobScreening({ resume, jobs: validJobs }); setResults(data.results || []); }
+    try {
+      const data = await requestJobScreening({ resume, jobs: validJobs });
+      const nextResults = (data.results || []).map(item => ({ ...item, priority: item.score >= 80 ? '高优先级' : item.score >= 65 ? '中优先级' : '低优先级' }));
+      setResults(nextResults);
+      setNotice(`岗位适配度对比完成，已生成 ${nextResults.length} 个岗位的推荐顺序`);
+      onSaveScreening?.({ jobs: validJobs, results: nextResults, resumeName: cachedResume?.filename || '默认简历' });
+      window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+    }
     catch (err) { setError(err.message || '岗位筛选失败，请稍后重试。'); }
     finally { setLoading(false); }
   };
@@ -538,17 +559,19 @@ function JobScreening({ token, user, onBack, onAnalyze, onStart }) {
   };
   return <section className="workspace screening-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="secondary" onClick={onStart}>单岗位分析</button></div></nav>
-    <div className="page-head"><div><small>JOB SHORTLIST / 岗位筛选</small><h2>先选对岗位，再深入准备</h2><p>用同一份简历横向判断多个 JD，只输出排序与关键依据</p></div><div className="page-actions"><button className="primary" onClick={screen} disabled={loading || validJobs.length < 2}>{loading ? '筛选中…' : '开始筛选'}</button></div></div>
+    <div className="page-head"><div><small>JOB FIT COMPARISON / 岗位适配度对比</small><h2>岗位适配度对比</h2><p>导入多个 JD，查看岗位排序、主要优势与关键缺口</p></div><div className="page-actions"><button className="primary" onClick={screen} disabled={loading || validJobs.length < 2}>{loading ? '对比中…' : '开始对比'}</button></div></div>
+    {resume && <div className="screening-resume editorial-card"><div><small>本次使用的简历</small><b>{cachedResume?.filename || '账号默认简历'}</b><span>{cachedResume?.char_count || resume.length} 个字符 · 与单岗位分析共用</span></div><button className="secondary" onClick={onStart}>更换简历</button></div>}
+    {notice && <div className="screening-toast editorial-card"><div><b>对比完成</b><span>{notice}</span></div><button className="primary" onClick={() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' })}>查看结果</button></div>}
     {!resume && <div className="error-banner editorial-card"><b>还没有默认简历</b><span>先上传一份简历，再回来筛选岗位。</span><button className="secondary" onClick={onStart}>去上传简历</button></div>}
     {error && <div className="error-banner editorial-card"><b>暂未完成</b><span>{error}</span></div>}
     <div className="screening-inputs">{jobs.map((job, index) => <article className="editorial-card screening-input" key={index}><div className="card-title"><span>0{index + 1}</span><b>候选岗位</b>{jobs.length > 2 && <button onClick={() => setJobs(current => current.filter((_, i) => i !== index))}>移除</button>}</div><input value={job.title} onChange={e => updateJob(index, 'title', e.target.value)} placeholder="岗位名称"/><div className="two-fields"><input value={job.company} onChange={e => updateJob(index, 'company', e.target.value)} placeholder="公司（选填）"/><input value={job.businessUnit} onChange={e => updateJob(index, 'businessUnit', e.target.value)} placeholder="业务方向（选填）"/></div><textarea value={job.jd} onChange={e => updateJob(index, 'jd', e.target.value)} placeholder="粘贴完整 JD"/></article>)}</div>
-    {jobs.length < 6 && <button className="secondary add-job" onClick={() => setJobs(current => [...current, { title: '', company: '', businessUnit: '', jd: '' }])}>＋ 添加岗位</button>}
-    {loading && <div className="analysis-loading editorial-card"><div className="loading-copy"><b>正在比较候选岗位</b><p>统一评分口径，不生成冗长完整报告</p></div></div>}
-    {results.length > 0 && <div className="screening-results"><div className="panel-head"><div><b>岗位优先级</b><p>从更值得投入准备的岗位开始</p></div><span>{results.length} 个岗位</span></div>{results.map((item, index) => <article className="editorial-card screening-result" key={`${item.jd_index}-${item.title}`}><div className="screening-rank"><span>#{index + 1}</span><strong>{item.score}</strong><small>匹配分</small></div><div className="screening-copy"><small>{item.priority}</small><h3>{item.title}{item.company ? ` · ${item.company}` : ''}</h3><p>{item.verdict}</p><div className="screening-points"><div><label>主要匹配点</label>{item.match_points.map(point => <span key={point}>✓ {point}</span>)}</div><div><label>关键缺口</label>{item.gaps.map(gap => <span key={gap}>— {gap}</span>)}</div></div></div><button className="primary" onClick={() => deepAnalyze(item)} disabled={deepLoading >= 0}>{deepLoading === item.jd_index ? '生成中…' : '深入分析'}</button></article>)}</div>}
+    {jobs.length < 9 && <button className="secondary add-job" onClick={() => setJobs(current => [...current, { title: '', company: '', businessUnit: '', jd: '' }])}>＋ 添加岗位（最多 9 个）</button>}
+    {loading && <div className="screening-progress editorial-card"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div><b>正在比较岗位适配度</b><p>统一评分口径，完成后会自动定位到结果</p></div><div className="screening-progress-steps"><span>01 读取候选岗位</span><span>02 统一口径比较</span><span>03 生成推荐顺序</span></div></div>}
+    {results.length > 0 && <div className="screening-results" ref={resultsRef}><div className="panel-head"><div><b>岗位优先级</b><p>从更值得投入准备的岗位开始</p></div><span>{results.length} 个岗位</span></div>{results.map((item, index) => <article className="editorial-card screening-result" key={`${item.jd_index}-${item.title}`}><div className="screening-rank"><span>#{index + 1}</span><strong>{Math.max(0, item.score - 10)}–{Math.min(100, item.score + 4)}</strong><small>预估匹配区间</small></div><div className="screening-copy"><small>{item.priority}</small><h3>{item.title}{item.company ? ` · ${item.company}` : ''}</h3><p>{item.verdict}</p><div className="screening-points"><div><label>主要匹配点</label>{item.match_points.map(point => <span key={point}>✓ {point}</span>)}</div><div><label>关键缺口</label>{item.gaps.map(gap => <span key={gap}>— {gap}</span>)}</div></div></div><button className="primary" onClick={() => deepAnalyze(item)} disabled={deepLoading >= 0}>{deepLoading === item.jd_index ? '生成中…' : '深入分析'}</button></article>)}</div>}
   </section>;
 }
 
-function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
+function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenScreening, token, user }) {
   const cachedResume = getCachedDefaultResume(user?.id);
   const [resume, setResume] = useState(() => cachedResume?.resume_text || '');
   const [resumeFile, setResumeFile] = useState(null);
@@ -771,7 +794,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, token, user }) {
   const loadingSteps = ['读取简历证据', '解析目标 JD', '评估能力缺口', '生成申请策略'];
 
   return <section className="workspace input-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="secondary" onClick={onOpenHistory}>历史报告</button><button className="secondary" onClick={onOpenScreening}>岗位适配度对比</button><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '优化中…' : '优化简历'}</button><button className="secondary" onClick={submit} disabled={!canSubmit}>{loading ? '分析中…' : '生成报告'}</button></div></nav>
     <div className="page-head">
       <div><small>STEP 01 / INPUT</small><h2>导入简历，匹配目标岗位</h2><p>填写岗位信息并粘贴 JD，生成岗位匹配报告</p></div>
       <div className="page-actions"><button className="secondary" onClick={optimizeResume} disabled={!canOptimize}>{rewriteLoading ? '正在优化…' : '优化简历表达'}</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成匹配报告'}</button></div>
@@ -991,40 +1014,17 @@ function ResultPage({ result, onBack, onHome, onOpenHistory, onCompare }) {
   </section>;
 }
 
-function HistoryPage({ records, onView, onDelete, onBack, onCompare }) {
+function HistoryPage({ records, screeningRecords, onView, onViewScreening, onDelete, onDeleteScreening, onBack, onCompare }) {
+  const [tab, setTab] = useState('reports');
   const [selected, setSelected] = useState(records.slice(0, 3).map(item => item.id));
-  const [confirmDeleteId, setConfirmDeleteId] = useState('');
   const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id].slice(-4));
   const selectedRecords = records.filter(item => selected.includes(item.id));
-  const pendingDeleteRecord = records.find(item => item.id === confirmDeleteId);
-  const confirmDelete = () => {
-    if (!confirmDeleteId) return;
-    onDelete(confirmDeleteId);
-    setConfirmDeleteId('');
-  };
-
   return <section className="workspace history-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button><button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比岗位（{selectedRecords.length}）</button></div></nav>
-    <div className="page-head"><div><small>REPORT HISTORY / 历史报告</small><h2>我的报告</h2><p>历史报告会同步到当前账号，退出登录后本机不展示报告内容</p></div></div>
-    {records.length === 0 ? <div className="empty-state editorial-card"><b>还没有历史报告</b><p>先完成一次简历 × JD 分析，报告会自动保存到这里</p></div> : <div className="history-grid">
-      {records.map(record => <article className="history-card editorial-card" key={record.id}>
-        <label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label>
-        <div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div>
-        <h3>{record.target}</h3>
-        <p>{record.result.summary}</p>
-        <div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}{record.businessUnit && <span>{record.businessUnit}</span>}</div>
-        <div className="history-snippet"><label>JD 摘要</label><p>{record.jdSnippet}</p></div>
-        <div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看完整报告</button><button className="secondary danger" onClick={() => setConfirmDeleteId(record.id)}>删除</button></div>
-      </article>)}
-    </div>}
-    {pendingDeleteRecord && <div className="modal-backdrop" role="presentation" onClick={() => setConfirmDeleteId('')}>
-      <div className="confirm-modal editorial-card" role="dialog" aria-modal="true" aria-labelledby="delete-report-title" onClick={event => event.stopPropagation()}>
-        <small>DELETE REPORT</small>
-        <h3 id="delete-report-title">确认删除这份历史报告？</h3>
-        <p>报告：{pendingDeleteRecord.target || '未命名岗位'}</p>
-        <div className="modal-actions"><button className="secondary" onClick={() => setConfirmDeleteId('')}>取消</button><button className="primary danger-solid" onClick={confirmDelete}>确认删除</button></div>
-      </div>
-    </div>}
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button>{tab === 'reports' && <button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比岗位（{selectedRecords.length}）</button>}</div></nav>
+    <div className="page-head"><div><small>MY REPORTS / 我的报告</small><h2>我的报告</h2><p>查看完整岗位报告与岗位适配度对比记录</p></div></div>
+    <div className="history-tabs"><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>完整报告 <span>{records.length}</span></button><button className={tab === 'screenings' ? 'active' : ''} onClick={() => setTab('screenings')}>岗位筛选 <span>{screeningRecords.length}</span></button></div>
+    {tab === 'reports' && (records.length === 0 ? <div className="empty-state editorial-card"><b>还没有完整报告</b><p>完成一次简历 × JD 分析后，报告会自动保存到这里</p></div> : <div className="history-grid">{records.map(record => <article className="history-card editorial-card" key={record.id}><label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label><div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div><h3>{record.target}</h3><p>{record.result.summary}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}</div><div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看完整报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div></article>)}</div>)}
+    {tab === 'screenings' && (screeningRecords.length === 0 ? <div className="empty-state editorial-card"><b>还没有岗位筛选记录</b><p>完成一次岗位适配度对比后，结果会保存在这里</p></div> : <div className="history-grid screening-history-grid">{screeningRecords.map(record => <article className="history-card editorial-card" key={record.id}><div className="history-score"><span>岗位适配度对比</span><b>{record.results.length}</b></div><h3>{record.results[0]?.title || '岗位筛选'}</h3><p>{record.results.slice(0, 3).map(item => item.title).join('、')}{record.results.length > 3 ? ` 等 ${record.results.length} 个岗位` : ''}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.resumeName}</span></div><div className="history-actions"><button className="secondary" onClick={() => onViewScreening(record)}>继续查看</button><button className="secondary danger" onClick={() => onDeleteScreening(record.id)}>删除</button></div></article>)}</div>)}
   </section>;
 }
 
@@ -1064,6 +1064,8 @@ function App() {
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || '');
   const [user, setUser] = useState(getStoredUser);
   const [history, setHistory] = useState(getStoredHistory);
+  const [screeningHistory, setScreeningHistory] = useState(() => getScreeningHistoryForUser(getStoredUser()?.id));
+  const [selectedScreening, setSelectedScreening] = useState(null);
   const [compareRecords, setCompareRecords] = useState([]);
   const [showAuth, setShowAuth] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -1073,6 +1075,7 @@ function App() {
     if (!token) {
       setUser(null);
       setHistory([]);
+      setScreeningHistory([]);
       return;
     }
     let cancelled = false;
@@ -1083,14 +1086,22 @@ function App() {
         setUser(userInfo);
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userInfo));
         const localRecords = getHistoryForUser(userInfo.id);
+        const localScreenings = getScreeningHistoryForUser(userInfo.id);
         setHistory(localRecords);
+        setScreeningHistory(localScreenings);
         persistHistory(localRecords, userInfo.id);
+        persistScreeningHistory(localScreenings, userInfo.id);
         try {
           const cloud = await fetchCloudReports(token);
           if (cancelled) return;
-          const merged = mergeHistory(localRecords, cloud.reports || []);
+          const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening');
+          const cloudScreenings = (cloud.reports || []).filter(item => item.record?.kind === 'screening');
+          const merged = mergeHistory(localRecords, cloudRecords);
+          const mergedScreenings = mergeHistory(localScreenings, cloudScreenings);
           setHistory(merged);
+          setScreeningHistory(mergedScreenings);
           persistHistory(merged, userInfo.id);
+          persistScreeningHistory(mergedScreenings, userInfo.id);
         } catch (syncError) {
           if (syncError.status === 401) throw syncError;
           console.warn('restore cloud reports failed temporarily', syncError);
@@ -1130,10 +1141,13 @@ function App() {
     localStorage.setItem(AUTH_TOKEN_KEY, auth.token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(auth.user));
     const localRecords = getHistoryForUser(auth.user.id);
+    const localScreenings = getScreeningHistoryForUser(auth.user.id);
     persistHistory(localRecords, auth.user.id);
+    persistScreeningHistory(localScreenings, auth.user.id);
     setToken(auth.token);
     setUser(auth.user);
     setHistory(localRecords);
+    setScreeningHistory(localScreenings);
     setShowAuth(false);
     const nextStep = pendingStep;
     if (nextStep) {
@@ -1180,6 +1194,26 @@ function App() {
     setStep('result');
   };
 
+  const saveScreeningRecord = payload => {
+    const record = { id: `screening-${Date.now()}`, kind: 'screening', createdAt: new Date().toISOString(), ...payload };
+    const next = [record, ...screeningHistory].slice(0, 20);
+    setScreeningHistory(next);
+    persistScreeningHistory(next, user?.id);
+    if (token) saveCloudReport(token, record).catch(err => console.warn('save screening record failed', err));
+  };
+
+  const viewScreeningRecord = record => {
+    setSelectedScreening(record);
+    setStep('screening');
+  };
+
+  const deleteScreeningRecord = id => {
+    const next = screeningHistory.filter(item => item.id !== id);
+    setScreeningHistory(next);
+    persistScreeningHistory(next, user?.id);
+    if (token) deleteCloudReportWithRetry(token, id).catch(err => console.warn('delete screening record failed', err));
+  };
+
   const deleteRecord = id => {
     markReportDeleted(id);
     const nextHistory = history.filter(item => item.id !== id);
@@ -1209,9 +1243,9 @@ function App() {
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
-  if (step === 'screening') return withAuth(<JobScreening token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} />);
-  if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} />);
-  if (step === 'history') return withAuth(<HistoryPage records={history} onView={viewRecord} onDelete={deleteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
+  if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
+  if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenScreening={() => { setSelectedScreening(null); setStep('screening'); }} />);
+  if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
   return withAuth(<ResultPage result={result} onBack={() => setStep('input')} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }

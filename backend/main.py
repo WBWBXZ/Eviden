@@ -282,8 +282,8 @@ class ScreeningRequest(BaseModel):
 
     @validator("jds")
     def validate_jd_count(cls, value: List[ScreeningJD]) -> List[ScreeningJD]:
-        if len(value) < 2 or len(value) > 6:
-            raise ValueError("请添加 2–6 个岗位")
+        if len(value) < 2 or len(value) > 9:
+            raise ValueError("请添加 2–9 个岗位")
         return value
 
 
@@ -1037,16 +1037,16 @@ def normalize_result(payload: AnalysisPayload, request: AnalyzeRequest) -> Analy
         checked_evidence.append(item)
 
     if score >= 82:
-        action = "值得优先投递"
+        action = "优先投递"
         priority = "A"
     elif score >= 74:
-        action = "值得投递，先完成关键准备"
+        action = "建议投递"
         priority = "A-"
     elif score >= 64:
-        action = "可以投递，建议先补强核心证据"
+        action = "评估后投递"
         priority = "B"
     else:
-        action = "暂不优先，先补齐关键条件"
+        action = "暂缓投递"
         priority = "C"
 
     context_parts = [request.company, request.business_unit, request.target]
@@ -1136,7 +1136,7 @@ async def request_screening(request: ScreeningRequest) -> ScreeningResponse:
         )
         for index, item in enumerate(request.jds)
     )
-    system_prompt = """你是 Eviden 的多岗位筛选引擎。比较同一份简历与多个 JD，帮助用户决定先投哪个岗位。只依据简历与 JD，不得编造。所有岗位使用同一评分口径。输出一个 JSON 对象：{\"results\":[{\"jd_index\":0,\"title\":\"岗位名\",\"company\":\"公司\",\"score\":0,\"priority\":\"优先探索/值得尝试/暂不优先\",\"verdict\":\"一句话判断\",\"match_points\":[\"最多3项\"],\"gaps\":[\"最多2项\"]}]}。必须覆盖每个输入岗位并按 score 从高到低排序。不要输出 Markdown。"""
+    system_prompt = """你是 Eviden 的多岗位筛选引擎。比较同一份简历与多个 JD，帮助用户决定先投哪个岗位。只依据简历与 JD，不得编造。所有岗位使用同一评分口径。输出一个 JSON 对象：{\"results\":[{\"jd_index\":0,\"title\":\"岗位名\",\"company\":\"公司\",\"score\":0,\"priority\":\"高优先级/中优先级/低优先级\",\"verdict\":\"一句话判断\",\"match_points\":[\"最多3项\"],\"gaps\":[\"最多2项\"]}]}。必须覆盖每个输入岗位并按 score 从高到低排序。不要输出 Markdown。"""
     user_prompt = "【简历原文】\n{0}\n\n【候选岗位】\n{1}".format(request.resume, jobs)
     payload = {
         "model": model_name(),
