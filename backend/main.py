@@ -54,6 +54,8 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
+_ANALYSIS_JOBS: Dict[str, Dict[str, Any]] = {}
+_ANALYSIS_JOBS_LOCK = threading.Lock()
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -1332,88 +1334,64 @@ async def parse_resume_json_handler(request: ResumeParseJsonRequest):
 
 async def process_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
     now = int(time.time())
-    execute_sql(
-        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ?",
-        ("processing", now, job_id),
-    )
+    with _ANALYSIS_JOBS_LOCK:
+        _ANALYSIS_JOBS[job_id].update(status="processing", updated_at=now)
     try:
         payload = await request_analysis(request)
         result = normalize_result(payload, request)
         now = int(time.time())
-        execute_sql(
-            "UPDATE analysis_jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?",
-            ("completed", json.dumps(result.dict(), ensure_ascii=False), "", now, job_id),
-        )
+        with _ANALYSIS_JOBS_LOCK:
+            _ANALYSIS_JOBS[job_id].update(status="completed", result=result.dict(), error="", updated_at=now)
     except Exception as error:
         LOGGER.exception("analysis job failed: %s", job_id)
         detail = getattr(error, "detail", "") or "报告生成失败，请重新生成。"
         now = int(time.time())
-        execute_sql(
-            "UPDATE analysis_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?",
-            ("failed", str(detail)[:500], now, job_id),
-        )
+        with _ANALYSIS_JOBS_LOCK:
+            _ANALYSIS_JOBS[job_id].update(status="failed", error=str(detail)[:500], updated_at=now)
 
 
 def start_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
     asyncio.run(process_analysis_job(job_id, request))
 
 
-def analysis_job_response(row: Dict[str, Any]) -> AnalysisJobStatus:
-    result_json = row.get("result_json")
+def analysis_job_response(job_id: str, job: Dict[str, Any]) -> AnalysisJobStatus:
+    result = job.get("result")
     return AnalysisJobStatus(
-        job_id=str(row["id"]),
-        status=str(row["status"]),
-        result=AnalysisResult.parse_obj(json.loads(result_json)) if result_json else None,
-        error=str(row.get("error") or ""),
-        created_at=int(row["created_at"]),
-        updated_at=int(row["updated_at"]),
+        job_id=job_id,
+        status=str(job["status"]),
+        result=AnalysisResult.parse_obj(result) if result else None,
+        error=str(job.get("error") or ""),
+        created_at=int(job["created_at"]),
+        updated_at=int(job["updated_at"]),
     )
 
 
 @app.post("/api/analysis-jobs", response_model=AnalysisJobCreated)
-async def create_analysis_job_handler(
-    request: AnalyzeRequest,
-    user: UserInfo = Depends(current_user),
-):
+async def create_analysis_job_handler(request: AnalyzeRequest):
     job_id = "analysis-{0}".format(uuid.uuid4().hex)
     now = int(time.time())
-    execute_sql(
-        """
-        INSERT INTO analysis_jobs(id, user_id, status, request_json, result_json, error, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (job_id, user.id, "queued", json.dumps(request.dict(), ensure_ascii=False), None, "", now, now),
-    )
+    with _ANALYSIS_JOBS_LOCK:
+        expired_before = now - 60 * 60
+        for old_job_id in [key for key, value in _ANALYSIS_JOBS.items() if value["updated_at"] < expired_before]:
+            _ANALYSIS_JOBS.pop(old_job_id, None)
+        _ANALYSIS_JOBS[job_id] = {
+            "status": "queued",
+            "result": None,
+            "error": "",
+            "created_at": now,
+            "updated_at": now,
+        }
     threading.Thread(target=start_analysis_job, args=(job_id, request), daemon=True).start()
     return AnalysisJobCreated(job_id=job_id, status="queued")
 
 
-@app.get("/api/analysis-jobs/active", response_model=Optional[AnalysisJobStatus])
-async def active_analysis_job_handler(user: UserInfo = Depends(current_user)):
-    row = fetch_one(
-        """
-        SELECT id, status, result_json, error, created_at, updated_at
-        FROM analysis_jobs
-        WHERE user_id = ? AND status IN ('queued', 'processing')
-        ORDER BY created_at DESC LIMIT 1
-        """,
-        (user.id,),
-    )
-    return analysis_job_response(row) if row else None
-
-
 @app.get("/api/analysis-jobs/{job_id}", response_model=AnalysisJobStatus)
-async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
-    row = fetch_one(
-        """
-        SELECT id, status, result_json, error, created_at, updated_at
-        FROM analysis_jobs WHERE id = ? AND user_id = ?
-        """,
-        (job_id, user.id),
-    )
-    if not row:
+async def get_analysis_job_handler(job_id: str):
+    with _ANALYSIS_JOBS_LOCK:
+        job = dict(_ANALYSIS_JOBS.get(job_id) or {})
+    if not job:
         raise HTTPException(status_code=404, detail="生成任务不存在或已失效。")
-    return analysis_job_response(row)
+    return analysis_job_response(job_id, job)
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)
