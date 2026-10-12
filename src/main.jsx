@@ -960,7 +960,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
 
   return <section className="workspace rewrite-page" ref={resultRef}>
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onManageResume} disabled={loading}>管理默认简历</button>{activeStep === 1 ? <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成改写建议'}</button> : <button className="secondary" onClick={() => setActiveStep(1)}>调整目标</button>}</div></nav>
-    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER 2.0 / 简历优化</small><h2>让简历更贴近目标岗位</h2><p>基于默认简历和目标岗位生成可核验的改写建议；逐条确认后，再合并成投递版本</p></div></div>
+    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER</small><h2>简历优化</h2><p>对照岗位要求改写简历，生成岗位定向版本。</p></div></div>
     <div className="rewrite-steps" aria-label="简历优化进度"><button className={activeStep === 1 ? 'active' : ''} onClick={() => setActiveStep(1)}><span>01</span><b>明确目标</b></button><button className={activeStep === 2 ? 'active' : ''} disabled={!rewrite} onClick={() => rewrite && setActiveStep(2)}><span>02</span><b>确认改写</b></button><button className={activeStep === 3 ? 'active' : ''} disabled={!rewrite} onClick={openFinalDraft}><span>03</span><b>完成简历</b></button></div>
     {error && <div className="error-banner editorial-card"><b>暂未生成改写建议</b><span>{error}</span></div>}
     {loading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在分析岗位与简历</b><p>匹配岗位要求、筛选高价值经历，并校验表达边界</p></div></div>}
@@ -971,7 +971,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
         <div className="card-title"><BriefcaseBusiness size={18}/><b>目标岗位</b><span>岗位名称必填</span></div>
         <div className="rewrite-form-section"><div className="rewrite-form-title"><b>岗位信息</b><small>用于确定改写方向</small></div><label className="rewrite-field rewrite-field-wide"><span>岗位名称 <em>必填</em></span><input value={target} onChange={e => setTarget(e.target.value)} placeholder="例如：AI 产品经理" /></label><div className="rewrite-field-row"><label className="rewrite-field"><span>公司 <small>选填</small></span><input value={company} onChange={e => setCompany(e.target.value)} placeholder="例如：字节跳动" /></label><label className="rewrite-field"><span>业务方向 <small>选填</small></span><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="例如：AI 应用" /></label></div></div>
         <div className="rewrite-form-section rewrite-jd-section"><div className="rewrite-form-title"><b>岗位描述（JD）</b><small>选填 · 填写后建议会更精准</small></div><textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴岗位职责和任职要求" /></div>
-        <div className="rewrite-submit-row"><span>只基于简历中的真实经历进行改写</span><button className="primary rewrite-submit" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成改写建议'}</button></div>
+        <div className="rewrite-submit-row"><button className="primary rewrite-submit" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成改写建议'}</button></div>
       </div>
     </div>}
 
