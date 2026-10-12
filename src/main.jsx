@@ -240,6 +240,12 @@ function shortText(text, length = 82) {
   return cleaned.length > length ? `${cleaned.slice(0, length)}…` : cleaned;
 }
 
+function cleanResumeBulletAfter(value) {
+  const text = String(value || '').trim();
+  const cleaned = text.replace(/[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,48}(?:能力|素养|意识|思维)[。]?$/, '').replace(/[，；。\s]+$/, '');
+  return cleaned && text.endsWith('。') ? `${cleaned}。` : cleaned || text;
+}
+
 function makeHistoryRecord(result, input) {
   const resumeName = input.resumeFileName || result.resumeName || '当前上传简历';
   const company = input.company || '';
@@ -870,7 +876,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
   const [rewrite, setRewrite] = useState(initialRecord?.result || null);
   const [activeStep, setActiveStep] = useState(initialRecord?.result ? 2 : 1);
   const [adoptedIndices, setAdoptedIndices] = useState(initialSuggestions.map((_, index) => index));
-  const [editedSuggestions, setEditedSuggestions] = useState(Object.fromEntries(initialSuggestions.map((item, index) => [index, item.after])));
+  const [editedSuggestions, setEditedSuggestions] = useState(Object.fromEntries(initialSuggestions.map((item, index) => [index, cleanResumeBulletAfter(item.after)])));
   const [finalDraft, setFinalDraft] = useState(initialRecord?.finalDraft || '');
   const resultRef = useRef(null);
 
@@ -882,7 +888,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
       const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit });
       const suggestions = result.bullets || [];
       setRewrite(result);
-      setEditedSuggestions(Object.fromEntries(suggestions.map((item, index) => [index, item.after])));
+      setEditedSuggestions(Object.fromEntries(suggestions.map((item, index) => [index, cleanResumeBulletAfter(item.after)])));
       setAdoptedIndices(suggestions.map((_, index) => index));
       onSaveRewrite?.({ target, company, businessUnit, jd, resume, resumeName: cachedResume?.filename || initialRecord?.resumeName || '默认简历', result });
       setActiveStep(2);
