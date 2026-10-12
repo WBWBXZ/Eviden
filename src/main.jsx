@@ -275,7 +275,7 @@ function materialRewriteBullets(bullets) {
     index,
     item,
     similarity: item?.before && item?.after ? rewriteSimilarity(item.before, cleanResumeBulletAfter(item.after)) : 1,
-  })).filter(entry => entry.similarity < 0.98);
+  })).filter(entry => entry.similarity < 0.995);
   const selected = new Set(scored.filter(entry => entry.similarity < 0.88).map(entry => entry.index));
   const minimum = Math.min(5, scored.length);
   scored.slice().sort((left, right) => left.similarity - right.similarity).forEach(entry => {
@@ -460,22 +460,37 @@ async function requestResumeParse(file) {
   return response.json();
 }
 
-async function requestResumeRewrite({ resume, target, jd, company, businessUnit }) {
-  const body = { resume, target, jd, company, business_unit: businessUnit };
-  const created = await apiJson('/api/rewrite-jobs', { method: 'POST', body });
+async function requestResumeRewrite({ resume, target, jd, company, businessUnit, token }) {
+  const body = { resume, target, jd, company, business_unit: businessUnit, client_request_id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}` };
+  let created;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      created = await apiJson('/api/rewrite-jobs', { method: 'POST', body, token });
+      break;
+    } catch (error) {
+      if (error.status || attempt === 2) throw new Error(error.status ? error.message : '网络连接不稳定，请重新生成');
+      await wait(800 * (attempt + 1));
+    }
+  }
   let consecutiveErrors = 0;
+  const startedAt = Date.now();
   for (;;) {
     try {
-      const job = await apiJson(`/api/rewrite-jobs/${encodeURIComponent(created.job_id)}`);
+      const job = await apiJson(`/api/rewrite-jobs/${encodeURIComponent(created.job_id)}`, { token });
       consecutiveErrors = 0;
       if (job.status === 'completed' && job.result) return job.result;
-      if (job.status === 'failed') throw new Error(job.error || '简历优化失败，请稍后重试。');
+      if (job.status === 'failed') {
+        const error = new Error(job.error || '简历优化失败，请稍后重试');
+        error.terminal = true;
+        throw error;
+      }
     } catch (error) {
-      if (error.status || String(error.message || '').includes('失败')) throw error;
+      if (error.terminal || (error.status && error.status !== 404 && error.status !== 502 && error.status !== 503 && error.status !== 504)) throw error;
       consecutiveErrors += 1;
-      if (consecutiveErrors >= 10) throw new Error('暂时无法查询优化进度，请重新生成。');
+      if (consecutiveErrors >= 10) throw new Error('网络连接不稳定，请重新生成');
     }
-    await wait(2000);
+    if (Date.now() - startedAt > 120000) throw new Error('生成时间超出预期，请重新生成');
+    await wait(1000);
   }
 }
 
@@ -901,7 +916,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
   </section>;
 }
 
-function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialContext, initialRecord }) {
+function RewritePage({ onBack, onManageResume, onSaveRewrite, user, token, initialContext, initialRecord }) {
   const cachedResume = getCachedDefaultResume(user?.id);
   const resume = initialRecord?.resume || cachedResume?.resume_text || '';
   const [target, setTarget] = useState(initialRecord?.target || initialContext?.target || '');
@@ -923,7 +938,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
     setLoading(true);
     setError('');
     try {
-      const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit });
+      const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit, token });
       const suggestions = materialRewriteBullets(result.bullets);
       if (!suggestions.length) throw new Error('这次没有产生足够实质的改写建议，请补充目标 JD 后重试。');
       const checkedResult = { ...result, bullets: suggestions };
@@ -1381,7 +1396,7 @@ function App() {
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
-  if (step === 'rewrite') return withAuth(<RewritePage key={selectedRewrite?.id || `${rewriteContext?.target || 'default'}-${user?.id || 'guest'}`} user={user} initialContext={rewriteContext} initialRecord={selectedRewrite} onSaveRewrite={saveRewriteRecord} onBack={backFromCurrent} onManageResume={() => setStep('input')} />);
+  if (step === 'rewrite') return withAuth(<RewritePage key={selectedRewrite?.id || `${rewriteContext?.target || 'default'}-${user?.id || 'guest'}`} token={token} user={user} initialContext={rewriteContext} initialRecord={selectedRewrite} onSaveRewrite={saveRewriteRecord} onBack={backFromCurrent} onManageResume={() => setStep('input')} />);
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setSelectedRewrite(null); setRewriteContext(context); go('rewrite'); }} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} rewriteRecords={rewriteHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onViewRewrite={viewRewriteRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onDeleteRewrite={deleteRewriteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);

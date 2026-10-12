@@ -85,8 +85,9 @@ class ResumeRewriteRequest(BaseModel):
     jd: Optional[str] = Field("", max_length=30000)
     company: Optional[str] = Field("", max_length=120)
     business_unit: Optional[str] = Field("", max_length=120)
+    client_request_id: Optional[str] = Field("", max_length=64)
 
-    @validator("resume", "target", "jd", "company", "business_unit", pre=True, always=True)
+    @validator("resume", "target", "jd", "company", "business_unit", "client_request_id", pre=True, always=True)
     def strip_text(cls, value: Optional[str]) -> str:
         return str(value or "").strip()
 
@@ -1223,11 +1224,11 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
 请输出 JSON：
 {{
   "positioning":"目标岗位或职业方向短标题，10到18字；禁止使用‘具备’‘候选人’‘经验丰富的’等长句模板",
-  "strategy":"改写策略，2句内",
-  "bullets":[{{"section":"所属模块，如工作经历/项目经历/技能摘要","before":"简历逐字原文；找不到完整句时引用最接近片段","after":"建议改写，强调动作、场景、结果和个人边界","reason":"为什么这样改","evidence_boundary":"说明没有新增哪些未经证实的信息"}}],
-  "gaps":["还需要补充确认的信息，最多5条"],
-  "hr_intro":"给 HR 的中文开场白，80字内",
-  "cautions":["不能写进简历的风险点，最多4条"]
+  "strategy":"改写策略，50字内",
+  "bullets":[{{"section":"所属模块，如工作经历/项目经历/技能摘要","before":"简历逐字原文；找不到完整句时引用最接近片段","after":"建议改写，强调动作、场景、结果和个人边界","reason":"改写理由，30字内","evidence_boundary":"事实边界，30字内"}}],
+  "gaps":["还需要补充确认的信息，最多3条"],
+  "hr_intro":"给 HR 的中文开场白，60字内",
+  "cautions":["不能写进简历的风险点，最多3条"]
 }}
 要求：
 1. bullets 目标输出7条；优先覆盖工作经历、项目经历和与目标岗位最相关的不同证据。不能为了凑数重复同一事实；如果确实不足7条，至少输出5条真正值得改的内容。
@@ -1555,60 +1556,76 @@ async def get_analysis_job_handler(job_id: str):
     return analysis_job_response(job_id, job)
 
 
-async def process_rewrite_job(job_id: str, request: ResumeRewriteRequest) -> None:
+async def process_rewrite_job(job_id: str, request: ResumeRewriteRequest, user_id: int) -> None:
     now = int(time.time())
-    with _ANALYSIS_JOBS_LOCK:
-        _ANALYSIS_JOBS[job_id].update(status="processing", updated_at=now)
+    execute_sql(
+        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+        ("processing", now, job_id, user_id),
+    )
     try:
         result = await request_resume_rewrite(request)
         now = int(time.time())
-        with _ANALYSIS_JOBS_LOCK:
-            _ANALYSIS_JOBS[job_id].update(status="completed", result=result.dict(), error="", updated_at=now)
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            ("completed", json.dumps(result.dict(), ensure_ascii=False), "", now, job_id, user_id),
+        )
     except Exception as error:
         LOGGER.exception("resume rewrite job failed: %s", job_id)
-        detail = getattr(error, "detail", "") or "简历优化失败，请重新生成。"
+        detail = getattr(error, "detail", "") or "简历优化失败，请重新生成"
         now = int(time.time())
-        with _ANALYSIS_JOBS_LOCK:
-            _ANALYSIS_JOBS[job_id].update(status="failed", error=str(detail)[:500], updated_at=now)
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            ("failed", str(detail)[:500], now, job_id, user_id),
+        )
 
 
-def start_rewrite_job(job_id: str, request: ResumeRewriteRequest) -> None:
-    asyncio.run(process_rewrite_job(job_id, request))
+def start_rewrite_job(job_id: str, request: ResumeRewriteRequest, user_id: int) -> None:
+    asyncio.run(process_rewrite_job(job_id, request, user_id))
 
 
 @app.post("/api/rewrite-jobs", response_model=AnalysisJobCreated)
-async def create_rewrite_job_handler(request: ResumeRewriteRequest):
-    job_id = "rewrite-{0}".format(uuid.uuid4().hex)
+async def create_rewrite_job_handler(request: ResumeRewriteRequest, user: UserInfo = Depends(current_user)):
+    request_key = re.sub(r"[^a-zA-Z0-9_-]", "", request.client_request_id or "")[:64]
+    job_id = "rewrite-{0}-{1}".format(user.id, request_key or uuid.uuid4().hex)
+    existing = fetch_one(
+        "SELECT status FROM analysis_jobs WHERE id = ? AND user_id = ?",
+        (job_id, user.id),
+    )
+    if existing is not None:
+        return AnalysisJobCreated(job_id=job_id, status=str(existing["status"]))
     now = int(time.time())
-    with _ANALYSIS_JOBS_LOCK:
-        expired_before = now - 60 * 60
-        for old_job_id in [key for key, value in _ANALYSIS_JOBS.items() if value["updated_at"] < expired_before]:
-            _ANALYSIS_JOBS.pop(old_job_id, None)
-        _ANALYSIS_JOBS[job_id] = {
-            "status": "queued",
-            "result": None,
-            "error": "",
-            "created_at": now,
-            "updated_at": now,
-        }
-    threading.Thread(target=start_rewrite_job, args=(job_id, request), daemon=True).start()
+    execute_sql(
+        """
+        INSERT INTO analysis_jobs(id, user_id, status, request_json, result_json, error, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (job_id, user.id, "queued", json.dumps(request.dict(), ensure_ascii=False), None, "", now, now),
+    )
+    threading.Thread(target=start_rewrite_job, args=(job_id, request, user.id), daemon=True).start()
     return AnalysisJobCreated(job_id=job_id, status="queued")
 
 
 @app.get("/api/rewrite-jobs/{job_id}", response_model=ResumeRewriteJobStatus)
-async def get_rewrite_job_handler(job_id: str):
-    with _ANALYSIS_JOBS_LOCK:
-        job = dict(_ANALYSIS_JOBS.get(job_id) or {})
-    if not job or not job_id.startswith("rewrite-"):
-        raise HTTPException(status_code=404, detail="优化任务不存在或已失效。")
-    result = job.get("result")
+async def get_rewrite_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
+    row = fetch_one(
+        """
+        SELECT status, result_json, error, created_at, updated_at
+        FROM analysis_jobs
+        WHERE id = ? AND user_id = ?
+        """,
+        (job_id, user.id),
+    )
+    if row is None or not job_id.startswith("rewrite-"):
+        raise HTTPException(status_code=404, detail="优化任务不存在或已失效")
+    result_json = str(row["result_json"] or "")
+    result = json.loads(result_json) if result_json else None
     return ResumeRewriteJobStatus(
         job_id=job_id,
-        status=str(job["status"]),
+        status=str(row["status"]),
         result=ResumeRewriteResult.parse_obj(result) if result else None,
-        error=str(job.get("error") or ""),
-        created_at=int(job["created_at"]),
-        updated_at=int(job["updated_at"]),
+        error=str(row["error"] or ""),
+        created_at=int(row["created_at"]),
+        updated_at=int(row["updated_at"]),
     )
 
 
