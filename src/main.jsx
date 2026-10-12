@@ -46,6 +46,8 @@ const DEFAULT_RESUME_KEY_PREFIX = 'eviden.default-resume.v1';
 const PENDING_ANALYSIS_KEY = 'eviden.pending-analysis.v1';
 const SCREENING_HISTORY_KEY = 'eviden.screening.history.v1';
 const SCREENING_HISTORY_OWNER_KEY = 'eviden.screening.history.owner.v1';
+const REWRITE_HISTORY_KEY = 'eviden.rewrite.history.v1';
+const REWRITE_HISTORY_OWNER_KEY = 'eviden.rewrite.history.owner.v1';
 
 function safeParse(value, fallback) {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -120,6 +122,18 @@ function getScreeningHistoryForUser(userId) {
 function persistScreeningHistory(records, ownerId) {
   localStorage.setItem(SCREENING_HISTORY_KEY, JSON.stringify(records.slice(0, 20)));
   if (ownerId) localStorage.setItem(SCREENING_HISTORY_OWNER_KEY, String(ownerId));
+}
+
+function getRewriteHistoryForUser(userId) {
+  const ownerId = localStorage.getItem(REWRITE_HISTORY_OWNER_KEY);
+  if (ownerId && ownerId !== String(userId)) return [];
+  const parsed = safeParse(localStorage.getItem(REWRITE_HISTORY_KEY), []);
+  return Array.isArray(parsed) ? parsed.filter(item => item?.kind === 'rewrite' && item?.result) : [];
+}
+
+function persistRewriteHistory(records, ownerId) {
+  localStorage.setItem(REWRITE_HISTORY_KEY, JSON.stringify(records.slice(0, 20)));
+  if (ownerId) localStorage.setItem(REWRITE_HISTORY_OWNER_KEY, String(ownerId));
 }
 
 function getDeletedReportIds() {
@@ -843,20 +857,21 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
   </section>;
 }
 
-function RewritePage({ onBack, onManageResume, user, initialContext }) {
+function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialContext, initialRecord }) {
   const cachedResume = getCachedDefaultResume(user?.id);
-  const resume = cachedResume?.resume_text || '';
-  const [target, setTarget] = useState(initialContext?.target || '');
-  const [company, setCompany] = useState(initialContext?.company || '');
-  const [businessUnit, setBusinessUnit] = useState(initialContext?.businessUnit || '');
-  const [jd, setJd] = useState(initialContext?.jd || '');
+  const resume = initialRecord?.resume || cachedResume?.resume_text || '';
+  const [target, setTarget] = useState(initialRecord?.target || initialContext?.target || '');
+  const [company, setCompany] = useState(initialRecord?.company || initialContext?.company || '');
+  const [businessUnit, setBusinessUnit] = useState(initialRecord?.businessUnit || initialContext?.businessUnit || '');
+  const [jd, setJd] = useState(initialRecord?.jd || initialContext?.jd || '');
+  const initialSuggestions = initialRecord?.result?.bullets || [];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [rewrite, setRewrite] = useState(null);
-  const [activeStep, setActiveStep] = useState(1);
-  const [adoptedIndices, setAdoptedIndices] = useState([]);
-  const [editedSuggestions, setEditedSuggestions] = useState({});
-  const [finalDraft, setFinalDraft] = useState('');
+  const [rewrite, setRewrite] = useState(initialRecord?.result || null);
+  const [activeStep, setActiveStep] = useState(initialRecord?.result ? 2 : 1);
+  const [adoptedIndices, setAdoptedIndices] = useState(initialSuggestions.map((_, index) => index));
+  const [editedSuggestions, setEditedSuggestions] = useState(Object.fromEntries(initialSuggestions.map((item, index) => [index, item.after])));
+  const [finalDraft, setFinalDraft] = useState(initialRecord?.finalDraft || '');
   const resultRef = useRef(null);
 
   const submit = async () => {
@@ -869,6 +884,7 @@ function RewritePage({ onBack, onManageResume, user, initialContext }) {
       setRewrite(result);
       setEditedSuggestions(Object.fromEntries(suggestions.map((item, index) => [index, item.after])));
       setAdoptedIndices(suggestions.map((_, index) => index));
+      onSaveRewrite?.({ target, company, businessUnit, jd, resume, resumeName: cachedResume?.filename || initialRecord?.resumeName || '默认简历', result });
       setActiveStep(2);
       window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     } catch (err) {
@@ -1039,17 +1055,18 @@ function screeningHistoryTitle(record) {
   return highPriorityCount ? `${count} 个岗位 · ${highPriorityCount} 个高优先级` : `${count} 个岗位 · 暂无高优先级`;
 }
 
-function HistoryPage({ records = [], screeningRecords = [], onView, onViewScreening, onDelete, onDeleteScreening, onBack, onCompare }) {
+function HistoryPage({ records = [], screeningRecords = [], rewriteRecords = [], onView, onViewScreening, onViewRewrite, onDelete, onDeleteScreening, onDeleteRewrite, onBack, onCompare }) {
   const [tab, setTab] = useState('reports');
   const [selected, setSelected] = useState(records.slice(0, 3).map(item => item.id));
   const toggle = id => setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id].slice(-4));
   const selectedRecords = records.filter(item => selected.includes(item.id));
   return <section className="workspace history-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button>{tab === 'reports' && <button className="primary" onClick={() => onCompare(selectedRecords)} disabled={selectedRecords.length < 2}>对比岗位（{selectedRecords.length}）</button>}</div></nav>
-    <div className="page-head"><div><small>MY REPORTS / 我的报告</small><h2>我的报告</h2><p>查看完整岗位报告与岗位适配度对比记录</p></div></div>
-    <div className="history-tabs"><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>完整报告 <span>{records.length}</span></button><button className={tab === 'screenings' ? 'active' : ''} onClick={() => setTab('screenings')}>岗位筛选 <span>{screeningRecords.length}</span></button></div>
+    <div className="page-head"><div><small>MY RECORDS / 历史记录</small><h2>历史记录</h2><p>查看完整报告、岗位筛选与简历优化记录</p></div></div>
+    <div className="history-tabs"><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>完整报告 <span>{records.length}</span></button><button className={tab === 'screenings' ? 'active' : ''} onClick={() => setTab('screenings')}>岗位筛选 <span>{screeningRecords.length}</span></button><button className={tab === 'rewrites' ? 'active' : ''} onClick={() => setTab('rewrites')}>简历优化 <span>{rewriteRecords.length}</span></button></div>
     {tab === 'reports' && (records.length === 0 ? <div className="empty-state editorial-card"><b>还没有完整报告</b><p>完成一次简历 × JD 分析后，报告会自动保存到这里</p></div> : <div className="history-grid">{records.map(record => <article className="history-card editorial-card" key={record.id}><label className="compare-check"><input type="checkbox" checked={selected.includes(record.id)} onChange={() => toggle(record.id)} />{selected.includes(record.id) ? '已选对比' : '选择对比'}</label><div className="history-score"><span>{record.result.action}</span><b>{record.result.score}</b></div><h3>{record.target}</h3><p>{record.result.summary}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.result.priority}</span>{record.company && <span>{record.company}</span>}</div><div className="history-actions"><button className="secondary" onClick={() => onView(record)}>查看完整报告</button><button className="secondary danger" onClick={() => onDelete(record.id)}>删除</button></div></article>)}</div>)}
     {tab === 'screenings' && (screeningRecords.length === 0 ? <div className="empty-state editorial-card"><b>还没有岗位筛选记录</b><p>完成一次岗位适配度对比后，结果会保存在这里</p></div> : <div className="history-grid screening-history-grid">{screeningRecords.map(record => <article className="history-card editorial-card" key={record.id}><div className="history-score"><span>岗位适配度对比</span><b>{record.results.length}</b></div><h3>{screeningHistoryTitle(record)}</h3><p>{record.results.slice(0, 3).map(item => item.title).join('、')}{record.results.length > 3 ? ` 等 ${record.results.length} 个岗位` : ''}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.resumeName}</span></div><div className="history-actions"><button className="secondary" onClick={() => onViewScreening(record)}>继续查看</button><button className="secondary danger" onClick={() => onDeleteScreening(record.id)}>删除</button></div></article>)}</div>)}
+    {tab === 'rewrites' && (rewriteRecords.length === 0 ? <div className="empty-state editorial-card"><b>还没有简历优化记录</b><p>生成一次改写建议后，结果会自动保存在这里</p></div> : <div className="history-grid rewrite-history-grid">{rewriteRecords.map(record => <article className="history-card editorial-card" key={record.id}><div className="history-score"><span>简历优化</span><b>{record.result?.bullets?.length || 0}</b></div><h3>{record.target}</h3><p>{record.result?.positioning || record.result?.strategy}</p><div className="history-meta"><span>{formatDate(record.createdAt)}</span><span>{record.resumeName}</span>{record.company && <span>{record.company}</span>}</div><div className="history-actions"><button className="secondary" onClick={() => onViewRewrite(record)}>查看改写建议</button><button className="secondary danger" onClick={() => onDeleteRewrite(record.id)}>删除</button></div></article>)}</div>)}
   </section>;
 }
 
@@ -1090,7 +1107,9 @@ function App() {
   const [user, setUser] = useState(getStoredUser);
   const [history, setHistory] = useState(getStoredHistory);
   const [screeningHistory, setScreeningHistory] = useState(() => getScreeningHistoryForUser(getStoredUser()?.id));
+  const [rewriteHistory, setRewriteHistory] = useState(() => getRewriteHistoryForUser(getStoredUser()?.id));
   const [selectedScreening, setSelectedScreening] = useState(null);
+  const [selectedRewrite, setSelectedRewrite] = useState(null);
   const [rewriteContext, setRewriteContext] = useState(null);
   const [compareRecords, setCompareRecords] = useState([]);
   const [showAuth, setShowAuth] = useState(false);
@@ -1102,6 +1121,7 @@ function App() {
       setUser(null);
       setHistory([]);
       setScreeningHistory([]);
+      setRewriteHistory([]);
       return;
     }
     let cancelled = false;
@@ -1113,21 +1133,28 @@ function App() {
         localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userInfo));
         const localRecords = getHistoryForUser(userInfo.id);
         const localScreenings = getScreeningHistoryForUser(userInfo.id);
+        const localRewrites = getRewriteHistoryForUser(userInfo.id);
         setHistory(localRecords);
         setScreeningHistory(localScreenings);
+        setRewriteHistory(localRewrites);
         persistHistory(localRecords, userInfo.id);
         persistScreeningHistory(localScreenings, userInfo.id);
+        persistRewriteHistory(localRewrites, userInfo.id);
         try {
           const cloud = await fetchCloudReports(token);
           if (cancelled) return;
-          const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening');
+          const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening' && item.record?.kind !== 'rewrite' && item.record?.result?.score != null);
           const cloudScreenings = (cloud.reports || []).filter(item => item.record?.kind === 'screening');
+          const cloudRewrites = (cloud.reports || []).filter(item => item.record?.kind === 'rewrite');
           const merged = mergeHistory(localRecords, cloudRecords);
           const mergedScreenings = mergeHistory(localScreenings, cloudScreenings);
+          const mergedRewrites = mergeHistory(localRewrites, cloudRewrites);
           setHistory(merged);
           setScreeningHistory(mergedScreenings);
+          setRewriteHistory(mergedRewrites);
           persistHistory(merged, userInfo.id);
           persistScreeningHistory(mergedScreenings, userInfo.id);
+          persistRewriteHistory(mergedRewrites, userInfo.id);
         } catch (syncError) {
           if (syncError.status === 401) throw syncError;
           console.warn('restore cloud reports failed temporarily', syncError);
@@ -1168,29 +1195,36 @@ function App() {
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(auth.user));
     const localRecords = getHistoryForUser(auth.user.id);
     const localScreenings = getScreeningHistoryForUser(auth.user.id);
+    const localRewrites = getRewriteHistoryForUser(auth.user.id);
     persistHistory(localRecords, auth.user.id);
     persistScreeningHistory(localScreenings, auth.user.id);
+    persistRewriteHistory(localRewrites, auth.user.id);
     setToken(auth.token);
     setUser(auth.user);
     setHistory(localRecords);
     setScreeningHistory(localScreenings);
+    setRewriteHistory(localRewrites);
     setShowAuth(false);
     const nextStep = pendingStep;
     if (nextStep) {
       go(nextStep);
       setPendingStep('');
     }
-    Promise.allSettled([...localRecords, ...localScreenings].map(record => saveCloudReport(auth.token, record)))
+    Promise.allSettled([...localRecords, ...localScreenings, ...localRewrites].map(record => saveCloudReport(auth.token, record)))
       .then(() => fetchCloudReports(auth.token))
       .then(cloud => {
-        const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening');
+        const cloudRecords = (cloud.reports || []).filter(item => item.record?.kind !== 'screening' && item.record?.kind !== 'rewrite' && item.record?.result?.score != null);
         const cloudScreenings = (cloud.reports || []).filter(item => item.record?.kind === 'screening');
+        const cloudRewrites = (cloud.reports || []).filter(item => item.record?.kind === 'rewrite');
         const merged = mergeHistory(localRecords, cloudRecords);
         const mergedScreenings = mergeHistory(localScreenings, cloudScreenings);
+        const mergedRewrites = mergeHistory(localRewrites, cloudRewrites);
         setHistory(merged);
         setScreeningHistory(mergedScreenings);
+        setRewriteHistory(mergedRewrites);
         persistHistory(merged, auth.user.id);
         persistScreeningHistory(mergedScreenings, auth.user.id);
+        persistRewriteHistory(mergedRewrites, auth.user.id);
       })
       .catch(err => console.warn('sync history failed', err));
   };
@@ -1203,7 +1237,9 @@ function App() {
     setUser(null);
     setHistory([]);
     setScreeningHistory([]);
+    setRewriteHistory([]);
     setSelectedScreening(null);
+    setSelectedRewrite(null);
     setCompareRecords([]);
     setResult(null);
     setShowLogoutConfirm(false);
@@ -1247,6 +1283,28 @@ function App() {
     if (token) deleteCloudReportWithRetry(token, id).catch(err => console.warn('delete screening record failed', err));
   };
 
+  const saveRewriteRecord = payload => {
+    const record = { id: `rewrite-${Date.now()}`, kind: 'rewrite', createdAt: new Date().toISOString(), ...payload };
+    const next = [record, ...rewriteHistory].slice(0, 20);
+    setRewriteHistory(next);
+    persistRewriteHistory(next, user?.id);
+    if (token) saveCloudReport(token, record).catch(err => console.warn('save rewrite record failed', err));
+  };
+
+  const viewRewriteRecord = record => {
+    setSelectedRewrite(record);
+    setRewriteContext(null);
+    setPreviousStep('history');
+    setStep('rewrite');
+  };
+
+  const deleteRewriteRecord = id => {
+    const next = rewriteHistory.filter(item => item.id !== id);
+    setRewriteHistory(next);
+    persistRewriteHistory(next, user?.id);
+    if (token) deleteCloudReportWithRetry(token, id).catch(err => console.warn('delete rewrite record failed', err));
+  };
+
   const deleteRecord = id => {
     markReportDeleted(id);
     const nextHistory = history.filter(item => item.id !== id);
@@ -1275,11 +1333,11 @@ function App() {
   };
   const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
-  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
-  if (step === 'rewrite') return withAuth(<RewritePage key={`${rewriteContext?.target || 'default'}-${user?.id || 'guest'}`} user={user} initialContext={rewriteContext} onBack={backFromCurrent} onManageResume={() => setStep('input')} />);
-  if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setRewriteContext(context); go('rewrite'); }} />);
-  if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
+  if (step === 'rewrite') return withAuth(<RewritePage key={selectedRewrite?.id || `${rewriteContext?.target || 'default'}-${user?.id || 'guest'}`} user={user} initialContext={rewriteContext} initialRecord={selectedRewrite} onSaveRewrite={saveRewriteRecord} onBack={backFromCurrent} onManageResume={() => setStep('input')} />);
+  if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setSelectedRewrite(null); setRewriteContext(context); go('rewrite'); }} />);
+  if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} rewriteRecords={rewriteHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onViewRewrite={viewRewriteRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onDeleteRewrite={deleteRewriteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
   return withAuth(<ResultPage result={result} onBack={backFromCurrent} backLabel={previousStep === 'history' ? '返回历史报告' : previousStep === 'compare' ? '返回岗位对比' : '返回上一步'} showHistoryButton={previousStep !== 'history'} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
 }

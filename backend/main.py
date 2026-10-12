@@ -1202,7 +1202,14 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
   "hr_intro":"给 HR 的中文开场白，80字内",
   "cautions":["不能写进简历的风险点，最多4条"]
 }}
-要求：bullets 4到7条；before 必须逐字来自简历原文并保持足够完整，以便系统将建议准确合并回原简历；after 不得加入原简历没有的量化结果；不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
+要求：
+1. bullets 4到7条，只挑真正值得改的内容；如果原句已经很强，跳过它并选择其他内容。
+2. before 必须逐字来自简历原文并保持足够完整，以便系统准确合并。
+3. after 的目标不是缩短文字或替换同义词，而是进行实质性重构：明确业务场景、用户/问题、个人动作、关键判断、协作边界和结果证据。
+4. after 应保留 before 中所有有价值的事实、指标和专有名词；信息密度只能提高，不能因为追求简洁而删除关键背景。建议长度为 before 的 0.8 到 1.4 倍。
+5. 每条 after 至少体现以下两类改进：补足场景、突出个人动作、强化产品判断、明确结果、澄清责任边界、贴合 JD 要求。禁止只调整语序、压缩字数或替换近义词。
+6. 不得加入原简历没有的公司、项目、职责、工具、指标或结果；缺失信息放到 gaps，不得猜测。
+7. 不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
         target=request.target,
         company=request.company or "未提供",
         business_unit=request.business_unit or "未提供",
