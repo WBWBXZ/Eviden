@@ -845,6 +845,10 @@ function RewritePage({ onBack, onManageResume, user, initialContext }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [rewrite, setRewrite] = useState(null);
+  const [activeStep, setActiveStep] = useState(1);
+  const [adoptedIndices, setAdoptedIndices] = useState([]);
+  const [editedSuggestions, setEditedSuggestions] = useState({});
+  const [finalDraft, setFinalDraft] = useState('');
   const resultRef = useRef(null);
 
   const submit = async () => {
@@ -853,7 +857,11 @@ function RewritePage({ onBack, onManageResume, user, initialContext }) {
     setError('');
     try {
       const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit });
+      const suggestions = result.bullets || [];
       setRewrite(result);
+      setEditedSuggestions(Object.fromEntries(suggestions.map((item, index) => [index, item.after])));
+      setAdoptedIndices(suggestions.map((_, index) => index));
+      setActiveStep(2);
       window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     } catch (err) {
       setError(err.message || '简历优化失败，请稍后重试。');
@@ -863,18 +871,39 @@ function RewritePage({ onBack, onManageResume, user, initialContext }) {
   };
 
   const canSubmit = !loading && resume.trim().length >= 80 && target.trim().length >= 2;
+  const adoptedSet = new Set(adoptedIndices);
   const copyText = value => navigator.clipboard?.writeText(value || '');
+  const toggleAdoption = index => setAdoptedIndices(current => current.includes(index) ? current.filter(item => item !== index) : [...current, index].sort((a, b) => a - b));
+  const buildFinalDraft = () => {
+    const bullets = rewrite?.bullets || [];
+    if (bullets.length > 0 && adoptedIndices.length === bullets.length && rewrite?.final_resume) return rewrite.final_resume;
+    return bullets.reduce((draft, item, index) => {
+      if (!adoptedSet.has(index)) return draft;
+      const replacement = editedSuggestions[index] || item.after;
+      return item.before && draft.includes(item.before) ? draft.replace(item.before, replacement) : draft;
+    }, resume);
+  };
+  const openFinalDraft = () => {
+    setFinalDraft(buildFinalDraft());
+    setActiveStep(3);
+    window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
 
-  return <section className="workspace rewrite-page">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onManageResume} disabled={loading}>管理默认简历</button><button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '优化中…' : '生成优化方案'}</button></div></nav>
-    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER / 简历优化</small><h2>让每段经历更贴近目标岗位</h2><p>基于当前默认简历重组表达，只强化已有证据，不新增未经证实的信息</p></div></div>
+  return <section className="workspace rewrite-page" ref={resultRef}>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onManageResume} disabled={loading}>管理默认简历</button>{activeStep === 1 ? <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '优化中…' : '生成优化方案'}</button> : <button className="secondary" onClick={() => setActiveStep(1)}>调整目标</button>}</div></nav>
+    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER 2.0 / 简历优化</small><h2>从优化建议，到可投递版本</h2><p>基于当前默认简历定向改写；每条建议都可以采纳、撤销或继续编辑</p></div></div>
+    <div className="rewrite-steps" aria-label="简历优化进度"><button className={activeStep === 1 ? 'active' : ''} onClick={() => setActiveStep(1)}><span>01</span><b>设置目标</b></button><button className={activeStep === 2 ? 'active' : ''} disabled={!rewrite} onClick={() => rewrite && setActiveStep(2)}><span>02</span><b>选择改写</b></button><button className={activeStep === 3 ? 'active' : ''} disabled={!rewrite} onClick={openFinalDraft}><span>03</span><b>生成终稿</b></button></div>
     {error && <div className="error-banner editorial-card"><b>优化没有成功</b><span>{error}</span></div>}
     {loading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在生成简历优化方案</b><p>识别经历主线、重写项目表达并校验证据边界</p></div></div>}
-    <div className="rewrite-setup">
+
+    {activeStep === 1 && <div className="rewrite-setup">
       <div className="editorial-card rewrite-resume-card"><div className="card-title"><FileText size={18}/><b>当前默认简历</b><span>{resume ? `${cachedResume?.char_count || resume.length} 字符` : '未设置'}</span></div>{resume ? <><h3>{cachedResume?.filename || '当前默认简历'}</h3><p>{cachedResume?.preview || shortText(resume, 220)}</p><button className="text-action" onClick={onManageResume}>更换默认简历</button></> : <><h3>还没有默认简历</h3><p>先上传一份简历，后续分析和优化都会共用这份内容</p><button className="primary" onClick={onManageResume}>上传默认简历</button></>}</div>
       <div className="editorial-card rewrite-target-card"><div className="card-title"><BriefcaseBusiness size={18}/><b>优化目标</b><span>岗位必填 · JD 选填</span></div><div className="context-fields"><input value={target} onChange={e => setTarget(e.target.value)} placeholder="目标岗位" /><input value={company} onChange={e => setCompany(e.target.value)} placeholder="公司（选填）" /><input value={businessUnit} onChange={e => setBusinessUnit(e.target.value)} placeholder="业务方向（选填）" /></div><textarea value={jd} onChange={e => setJd(e.target.value)} placeholder="粘贴 JD 后，优化建议会更贴近岗位要求" /><button className="primary rewrite-submit" onClick={submit} disabled={!canSubmit}>{loading ? '正在优化…' : '生成简历优化方案'} <BrainCircuit size={18}/></button></div>
-    </div>
-    {rewrite && <div className="rewrite-output" ref={resultRef}><div className="rewrite-summary editorial-card"><div><small>POSITIONING / 定位建议</small><h2>{rewrite.positioning}</h2><p>{rewrite.strategy}</p></div><span>{rewrite.bullets?.length || 0} 条重点改写</span></div><div className="rewrite-list">{(rewrite.bullets || []).map((item, index) => <article className="rewrite-row editorial-card" key={`${item.section}-${index}`}><header><span>{String(index + 1).padStart(2, '0')}</span><b>{item.section}</b></header><div className="rewrite-before"><label>原始表达</label><p>{item.before}</p></div><div className="rewrite-arrow"><ChevronRight size={20}/></div><div className="rewrite-after"><div><label>建议表达</label><button className="text-action" onClick={() => copyText(item.after)}>复制</button></div><p>{item.after}</p><small>证据边界：{item.evidence_boundary}</small></div></article>)}</div><div className="rewrite-extra"><div className="editorial-card"><div className="rewrite-extra-head"><b>HR 开场白</b><button className="text-action" onClick={() => copyText(rewrite.hr_intro)}>复制</button></div><p>{rewrite.hr_intro}</p></div><div className="editorial-card"><b>还需补充</b><ul>{(rewrite.gaps || []).length ? rewrite.gaps.map(gap => <li key={gap}>{gap}</li>) : <li>暂无明显证据缺口</li>}</ul></div></div></div>}
+    </div>}
+
+    {activeStep === 2 && rewrite && <div className="rewrite-output"><div className="rewrite-summary editorial-card"><div><small>POSITIONING / 定位建议</small><h2>{rewrite.positioning}</h2><p>{rewrite.strategy}</p></div><span>{adoptedIndices.length} / {rewrite.bullets?.length || 0} 条已采纳</span></div><div className="rewrite-toolbar"><div><b>逐条确认改写</b><span>默认已选中全部建议，可按需撤销或直接编辑</span></div><div><button className="secondary" onClick={() => setAdoptedIndices([])}>全部撤销</button><button className="secondary" onClick={() => setAdoptedIndices((rewrite.bullets || []).map((_, index) => index))}>全部采纳</button></div></div><div className="rewrite-list">{(rewrite.bullets || []).map((item, index) => <article className={`rewrite-row editorial-card ${adoptedSet.has(index) ? 'adopted' : ''}`} key={`${item.section}-${index}`}><header><span>{String(index + 1).padStart(2, '0')}</span><b>{item.section}</b><button className={adoptedSet.has(index) ? 'adopt-toggle active' : 'adopt-toggle'} onClick={() => toggleAdoption(index)}>{adoptedSet.has(index) ? '已采纳' : '采纳'}</button></header><div className="rewrite-before"><label>原始表达</label><p>{item.before}</p></div><div className="rewrite-arrow"><ChevronRight size={20}/></div><div className="rewrite-after"><div><label>建议表达</label><button className="text-action" onClick={() => copyText(editedSuggestions[index] || item.after)}>复制</button></div><textarea value={editedSuggestions[index] || ''} onChange={event => setEditedSuggestions(current => ({ ...current, [index]: event.target.value }))} /><small><b>为什么这样改：</b>{item.reason}</small><small><b>证据边界：</b>{item.evidence_boundary}</small></div></article>)}</div><div className="rewrite-extra"><div className="editorial-card"><div className="rewrite-extra-head"><b>HR 开场白</b><button className="text-action" onClick={() => copyText(rewrite.hr_intro)}>复制</button></div><p>{rewrite.hr_intro}</p></div><div className="editorial-card"><b>还需补充</b><ul>{(rewrite.gaps || []).length ? rewrite.gaps.map(gap => <li key={gap}>{gap}</li>) : <li>暂无明显证据缺口</li>}</ul></div></div><div className="rewrite-next"><div><b>已采纳 {adoptedIndices.length} 条建议</b><span>下一步会把已采纳内容合并为完整简历文本</span></div><button className="primary" onClick={openFinalDraft}>生成可投递版本 <ArrowRight size={18}/></button></div></div>}
+
+    {activeStep === 3 && rewrite && <div className="rewrite-final"><div className="rewrite-final-head editorial-card"><div><small>FINAL DRAFT / 可投递版本</small><h2>{target} · 定向简历</h2><p>已合并 {adoptedIndices.length} 条改写；你仍可以直接编辑终稿</p></div><div><button className="secondary" onClick={() => setActiveStep(2)}>返回调整</button><button className="primary" onClick={() => copyText(finalDraft)}>复制完整简历</button></div></div><div className="rewrite-final-grid"><div className="editorial-card final-editor"><div className="card-title"><FileText size={18}/><b>最终简历文本</b><span>{finalDraft.length} 字符</span></div><textarea className="final-resume-editor" value={finalDraft} onChange={event => setFinalDraft(event.target.value)} /></div><aside><div className="editorial-card final-checklist"><b>投递前检查</b><ul><li>姓名、联系方式和时间是否准确</li><li>所有量化结果是否可以解释</li><li>个人动作与团队结果是否区分清楚</li><li>是否保留与目标岗位最相关的证据</li></ul></div>{(rewrite.cautions || []).length > 0 && <div className="editorial-card final-cautions"><b>不要直接写入</b><ul>{rewrite.cautions.map(item => <li key={item}>{item}</li>)}</ul></div>}</aside></div></div>}
   </section>;
 }
 
