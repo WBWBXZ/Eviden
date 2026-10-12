@@ -29,6 +29,10 @@ Eviden 不是单纯的“AI 改简历工具”，而是一个帮助求职者判�
 Claim → Evidence → Gap → Action
 ```
 
+## 设计与开发规范
+
+- [UI 视觉规范](UI_GUIDELINES.md)
+
 ## 技术栈
 
 - React
