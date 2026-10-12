@@ -246,6 +246,31 @@ function cleanResumeBulletAfter(value) {
   return cleaned && text.endsWith('。') ? `${cleaned}。` : cleaned || text;
 }
 
+function rewriteSimilarity(before, after) {
+  const normalize = value => String(value || '').replace(/[\s，。；：、（）()【】\[\]·｜|—–-]/g, '').toLowerCase();
+  const left = normalize(before);
+  const right = normalize(after);
+  if (!left || !right) return 1;
+  if (left === right) return 1;
+  const bigrams = value => {
+    const counts = new Map();
+    for (let index = 0; index < value.length - 1; index += 1) {
+      const part = value.slice(index, index + 2);
+      counts.set(part, (counts.get(part) || 0) + 1);
+    }
+    return counts;
+  };
+  const leftParts = bigrams(left);
+  const rightParts = bigrams(right);
+  let overlap = 0;
+  leftParts.forEach((count, part) => { overlap += Math.min(count, rightParts.get(part) || 0); });
+  return (2 * overlap) / Math.max(1, left.length + right.length - 2);
+}
+
+function materialRewriteBullets(bullets) {
+  return (bullets || []).filter(item => item?.before && item?.after && rewriteSimilarity(item.before, cleanResumeBulletAfter(item.after)) < 0.84);
+}
+
 function makeHistoryRecord(result, input) {
   const resumeName = input.resumeFileName || result.resumeName || '当前上传简历';
   const company = input.company || '';
@@ -870,10 +895,10 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
   const [company, setCompany] = useState(initialRecord?.company || initialContext?.company || '');
   const [businessUnit, setBusinessUnit] = useState(initialRecord?.businessUnit || initialContext?.businessUnit || '');
   const [jd, setJd] = useState(initialRecord?.jd || initialContext?.jd || '');
-  const initialSuggestions = initialRecord?.result?.bullets || [];
+  const initialSuggestions = materialRewriteBullets(initialRecord?.result?.bullets);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [rewrite, setRewrite] = useState(initialRecord?.result || null);
+  const [rewrite, setRewrite] = useState(initialRecord?.result ? { ...initialRecord.result, bullets: initialSuggestions } : null);
   const [activeStep, setActiveStep] = useState(initialRecord?.result ? 2 : 1);
   const [adoptedIndices, setAdoptedIndices] = useState(initialSuggestions.map((_, index) => index));
   const [editedSuggestions, setEditedSuggestions] = useState(Object.fromEntries(initialSuggestions.map((item, index) => [index, cleanResumeBulletAfter(item.after)])));
@@ -886,11 +911,13 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
     setError('');
     try {
       const result = await requestResumeRewrite({ resume, target, jd, company, businessUnit });
-      const suggestions = result.bullets || [];
-      setRewrite(result);
+      const suggestions = materialRewriteBullets(result.bullets);
+      if (!suggestions.length) throw new Error('这次没有产生足够实质的改写建议，请补充目标 JD 后重试。');
+      const checkedResult = { ...result, bullets: suggestions };
+      setRewrite(checkedResult);
       setEditedSuggestions(Object.fromEntries(suggestions.map((item, index) => [index, cleanResumeBulletAfter(item.after)])));
       setAdoptedIndices(suggestions.map((_, index) => index));
-      onSaveRewrite?.({ target, company, businessUnit, jd, resume, resumeName: cachedResume?.filename || initialRecord?.resumeName || '默认简历', result });
+      onSaveRewrite?.({ target, company, businessUnit, jd, resume, resumeName: cachedResume?.filename || initialRecord?.resumeName || '默认简历', result: checkedResult });
       setActiveStep(2);
       window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     } catch (err) {

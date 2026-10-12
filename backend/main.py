@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import difflib
 import hashlib
 import hmac
 import io
@@ -1189,6 +1190,15 @@ def clean_resume_bullet_after(value: Any) -> str:
     return cleaned or text
 
 
+def is_material_resume_rewrite(before: Any, after: Any) -> bool:
+    normalize = lambda value: re.sub(r"[\s，。；：、（）()【】\[\]·｜|—–-]", "", str(value or "")).lower()
+    left = normalize(before)
+    right = normalize(after)
+    if not left or not right:
+        return False
+    return difflib.SequenceMatcher(None, left, right).ratio() < 0.84
+
+
 async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewriteResult:
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
@@ -1223,7 +1233,8 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
 6. 不得加入原简历没有的公司、项目、职责、工具、指标或结果；也不得用“提升效率、确保交付、增强匹配度、优化体验”等无法由原文核验的泛化结果补句。缺失信息放到 gaps，不得猜测。
 7. after 中每一个事实性短语都必须能在 before 或简历其他原文中找到依据；如果无法增强而不引入新事实，就保留原句并选择其他内容。
 8. after 必须是可直接粘贴进简历的经历描述，禁止在句尾添加“体现了……能力”“展现……能力”“彰显……素养”等面试点评或能力总结；能力应该由动作和结果自然证明，而不是由作者自我评价。
-9. 不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
+9. 如果 after 只是删除模块标题、压缩几个字、替换“超过/超”等同义词，或与 before 基本相同，不要返回这一条；系统会自动丢弃相似度过高的建议。
+10. 不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
         target=request.target,
         company=request.company or "未提供",
         business_unit=request.business_unit or "未提供",
@@ -1257,15 +1268,19 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
         if response.status_code >= 400:
             raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, response.text[:500]))
         data = extract_json(response.json()["choices"][0]["message"]["content"])
+        checked_bullets: List[RewriteBullet] = []
+        for item in data.get("bullets", [])[:7]:
+            if not isinstance(item, dict):
+                continue
+            cleaned_after = clean_resume_bullet_after(item.get("after"))
+            if not is_material_resume_rewrite(item.get("before"), cleaned_after):
+                continue
+            checked_bullets.append(RewriteBullet.parse_obj({**item, "after": cleaned_after}))
         return ResumeRewriteResult(
             target=request.target,
             positioning=str(data.get("positioning", ""))[:120],
             strategy=str(data.get("strategy", ""))[:500],
-            bullets=[
-                RewriteBullet.parse_obj({**item, "after": clean_resume_bullet_after(item.get("after"))})
-                for item in data.get("bullets", [])[:7]
-                if isinstance(item, dict)
-            ],
+            bullets=checked_bullets,
             gaps=[str(item) for item in data.get("gaps", [])[:5]],
             hr_intro=str(data.get("hr_intro", ""))[:220],
             cautions=[str(item) for item in data.get("cautions", [])[:4]],
