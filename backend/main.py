@@ -1185,6 +1185,11 @@ def clean_resume_bullet_after(value: Any) -> str:
         "",
         text,
     ).rstrip("，；。 ")
+    cleaned = re.sub(
+        r"[，；。]?\s*(?:为(?:数据驱动优化|产品定位|后续迭代)提供(?:基础|参考|依据)|(?:显著)?(?:改善|提升)(?:核心)?体验|保障项目交付|确保核心功能可用|验证优化方案有效性)[。]?$",
+        "",
+        cleaned,
+    ).rstrip("，；。 ")
     if cleaned and text.endswith("。"):
         cleaned += "。"
     return cleaned or text

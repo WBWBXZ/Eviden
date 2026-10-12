@@ -242,7 +242,10 @@ function shortText(text, length = 82) {
 
 function cleanResumeBulletAfter(value) {
   const text = String(value || '').trim();
-  const cleaned = text.replace(/[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,60}[。]?$/, '').replace(/[，；。\s]+$/, '');
+  const cleaned = text
+    .replace(/[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,60}[。]?$/, '')
+    .replace(/[，；。]?\s*(?:为(?:数据驱动优化|产品定位|后续迭代)提供(?:基础|参考|依据)|(?:显著)?(?:改善|提升)(?:核心)?体验|保障项目交付|确保核心功能可用|验证优化方案有效性)[。]?$/, '')
+    .replace(/[，；。\s]+$/, '');
   return cleaned && text.endsWith('。') ? `${cleaned}。` : cleaned || text;
 }
 
