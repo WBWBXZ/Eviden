@@ -1190,13 +1190,13 @@ def clean_resume_bullet_after(value: Any) -> str:
     return cleaned or text
 
 
-def is_material_resume_rewrite(before: Any, after: Any) -> bool:
+def resume_rewrite_similarity(before: Any, after: Any) -> float:
     normalize = lambda value: re.sub(r"[\s，。；：、（）()【】\[\]·｜|—–-]", "", str(value or "")).lower()
     left = normalize(before)
     right = normalize(after)
     if not left or not right:
-        return False
-    return difflib.SequenceMatcher(None, left, right).ratio() < 0.84
+        return 1.0
+    return difflib.SequenceMatcher(None, left, right).ratio()
 
 
 async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewriteResult:
@@ -1225,7 +1225,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
   "cautions":["不能写进简历的风险点，最多4条"]
 }}
 要求：
-1. bullets 4到7条，只挑真正值得改的内容；如果原句已经很强，跳过它并选择其他内容。
+1. bullets 目标输出7条；优先覆盖工作经历、项目经历和与目标岗位最相关的不同证据。不能为了凑数重复同一事实；如果确实不足7条，至少输出5条真正值得改的内容。
 2. before 必须逐字来自简历原文并保持足够完整，以便系统准确合并。
 3. after 的目标不是缩短文字或替换同义词，而是进行实质性重构：明确业务场景、用户/问题、个人动作、关键判断、协作边界和结果证据。
 4. after 应保留 before 中所有有价值的事实、指标和专有名词；信息密度只能提高，不能因为追求简洁而删除关键背景。建议长度为 before 的 0.8 到 1.4 倍。
@@ -1268,14 +1268,21 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
         if response.status_code >= 400:
             raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, response.text[:500]))
         data = extract_json(response.json()["choices"][0]["message"]["content"])
-        checked_bullets: List[RewriteBullet] = []
+        candidates: List[tuple[float, RewriteBullet]] = []
         for item in data.get("bullets", [])[:7]:
             if not isinstance(item, dict):
                 continue
             cleaned_after = clean_resume_bullet_after(item.get("after"))
-            if not is_material_resume_rewrite(item.get("before"), cleaned_after):
+            similarity = resume_rewrite_similarity(item.get("before"), cleaned_after)
+            if similarity >= 0.98:
                 continue
-            checked_bullets.append(RewriteBullet.parse_obj({**item, "after": cleaned_after}))
+            candidates.append((similarity, RewriteBullet.parse_obj({**item, "after": cleaned_after})))
+        selected_ids = {id(bullet) for similarity, bullet in candidates if similarity < 0.88}
+        for _, bullet in sorted(candidates, key=lambda entry: entry[0]):
+            if len(selected_ids) >= min(5, len(candidates)):
+                break
+            selected_ids.add(id(bullet))
+        checked_bullets = [bullet for _, bullet in candidates if id(bullet) in selected_ids]
         return ResumeRewriteResult(
             target=request.target,
             positioning=str(data.get("positioning", ""))[:120],

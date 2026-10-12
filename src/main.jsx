@@ -268,7 +268,17 @@ function rewriteSimilarity(before, after) {
 }
 
 function materialRewriteBullets(bullets) {
-  return (bullets || []).filter(item => item?.before && item?.after && rewriteSimilarity(item.before, cleanResumeBulletAfter(item.after)) < 0.84);
+  const scored = (bullets || []).map((item, index) => ({
+    index,
+    item,
+    similarity: item?.before && item?.after ? rewriteSimilarity(item.before, cleanResumeBulletAfter(item.after)) : 1,
+  })).filter(entry => entry.similarity < 0.98);
+  const selected = new Set(scored.filter(entry => entry.similarity < 0.88).map(entry => entry.index));
+  const minimum = Math.min(5, scored.length);
+  scored.slice().sort((left, right) => left.similarity - right.similarity).forEach(entry => {
+    if (selected.size < minimum) selected.add(entry.index);
+  });
+  return scored.filter(entry => selected.has(entry.index)).map(entry => entry.item);
 }
 
 function makeHistoryRecord(result, input) {
