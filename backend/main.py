@@ -1177,6 +1177,18 @@ async def request_screening(request: ScreeningRequest) -> ScreeningResponse:
         raise HTTPException(status_code=502, detail="岗位筛选暂时没有完成，请重新生成。") from error
 
 
+def clean_resume_bullet_after(value: Any) -> str:
+    text = str(value or "").strip()
+    cleaned = re.sub(
+        r"[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,48}(?:能力|素养|意识|思维)[。]?$",
+        "",
+        text,
+    ).rstrip("，；。 ")
+    if cleaned and text.endswith("。"):
+        cleaned += "。"
+    return cleaned or text
+
+
 async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewriteResult:
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
@@ -1195,7 +1207,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
 
 请输出 JSON：
 {{
-  "positioning":"一句话候选人定位，不超过36字",
+  "positioning":"目标岗位或职业方向短标题，10到18字；禁止使用‘具备’‘候选人’‘经验丰富的’等长句模板",
   "strategy":"改写策略，2句内",
   "bullets":[{{"section":"所属模块，如工作经历/项目经历/技能摘要","before":"简历逐字原文；找不到完整句时引用最接近片段","after":"建议改写，强调动作、场景、结果和个人边界","reason":"为什么这样改","evidence_boundary":"说明没有新增哪些未经证实的信息"}}],
   "gaps":["还需要补充确认的信息，最多5条"],
@@ -1210,7 +1222,8 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
 5. 每条 after 至少体现以下两类改进：补足场景、突出个人动作、强化产品判断、明确结果、澄清责任边界、贴合 JD 要求。禁止只调整语序、压缩字数或替换近义词。
 6. 不得加入原简历没有的公司、项目、职责、工具、指标或结果；也不得用“提升效率、确保交付、增强匹配度、优化体验”等无法由原文核验的泛化结果补句。缺失信息放到 gaps，不得猜测。
 7. after 中每一个事实性短语都必须能在 before 或简历其他原文中找到依据；如果无法增强而不引入新事实，就保留原句并选择其他内容。
-8. 不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
+8. after 必须是可直接粘贴进简历的经历描述，禁止在句尾添加“体现了……能力”“展现……能力”“彰显……素养”等面试点评或能力总结；能力应该由动作和结果自然证明，而不是由作者自我评价。
+9. 不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
         target=request.target,
         company=request.company or "未提供",
         business_unit=request.business_unit or "未提供",
@@ -1248,7 +1261,11 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
             target=request.target,
             positioning=str(data.get("positioning", ""))[:120],
             strategy=str(data.get("strategy", ""))[:500],
-            bullets=[RewriteBullet.parse_obj(item) for item in data.get("bullets", [])[:7]],
+            bullets=[
+                RewriteBullet.parse_obj({**item, "after": clean_resume_bullet_after(item.get("after"))})
+                for item in data.get("bullets", [])[:7]
+                if isinstance(item, dict)
+            ],
             gaps=[str(item) for item in data.get("gaps", [])[:5]],
             hr_intro=str(data.get("hr_intro", ""))[:220],
             cautions=[str(item) for item in data.get("cautions", [])[:4]],
