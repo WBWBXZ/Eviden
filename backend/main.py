@@ -1191,10 +1191,9 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
   "bullets":[{{"section":"所属模块，如工作经历/项目经历/技能摘要","before":"简历逐字原文；找不到完整句时引用最接近片段","after":"建议改写，强调动作、场景、结果和个人边界","reason":"为什么这样改","evidence_boundary":"说明没有新增哪些未经证实的信息"}}],
   "gaps":["还需要补充确认的信息，最多5条"],
   "hr_intro":"给 HR 的中文开场白，80字内",
-  "cautions":["不能写进简历的风险点，最多4条"],
-  "final_resume":"应用全部建议后的完整中文简历文本；保留原简历的姓名、联系方式、教育背景、时间和章节，不删除未改写内容"
+  "cautions":["不能写进简历的风险点，最多4条"]
 }}
-要求：bullets 4到7条；before 必须逐字来自简历原文并保持足够完整，以便用户选择性替换；after 不得加入原简历没有的量化结果；final_resume 必须覆盖原简历全部主要章节，不能只返回改写片段；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
+要求：bullets 4到7条；before 必须逐字来自简历原文并保持足够完整，以便系统将建议准确合并回原简历；after 不得加入原简历没有的量化结果；不要输出完整简历，只输出高价值改写建议；如果 JD 为空，就按目标岗位进行通用产品化改写。""".format(
         target=request.target,
         company=request.company or "未提供",
         business_unit=request.business_unit or "未提供",
@@ -1212,7 +1211,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.15,
-        "max_tokens": 4200,
+        "max_tokens": 2400,
         "enable_thinking": False,
         "stream": False,
         "response_format": {"type": "json_object"},

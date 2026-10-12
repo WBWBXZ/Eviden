@@ -876,7 +876,6 @@ function RewritePage({ onBack, onManageResume, user, initialContext }) {
   const toggleAdoption = index => setAdoptedIndices(current => current.includes(index) ? current.filter(item => item !== index) : [...current, index].sort((a, b) => a - b));
   const buildFinalDraft = () => {
     const bullets = rewrite?.bullets || [];
-    if (bullets.length > 0 && adoptedIndices.length === bullets.length && rewrite?.final_resume) return rewrite.final_resume;
     return bullets.reduce((draft, item, index) => {
       if (!adoptedSet.has(index)) return draft;
       const replacement = editedSuggestions[index] || item.after;
