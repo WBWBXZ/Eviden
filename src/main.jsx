@@ -960,7 +960,7 @@ function RewritePage({ onBack, onManageResume, onSaveRewrite, user, initialConte
 
   return <section className="workspace rewrite-page" ref={resultRef}>
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack} disabled={loading}>返回首页</button><button className="secondary" onClick={onManageResume} disabled={loading}>管理默认简历</button>{activeStep === 1 ? <button className="primary" onClick={submit} disabled={!canSubmit}>{loading ? '生成中…' : '生成改写建议'}</button> : <button className="secondary" onClick={() => setActiveStep(1)}>调整目标</button>}</div></nav>
-    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER</small><h2>简历优化</h2><p>对照岗位要求改写简历，生成岗位定向版本。</p></div></div>
+    <div className="page-head rewrite-hero"><div><small>RESUME OPTIMIZER</small><h2>简历优化</h2><p>对照岗位要求改写简历，生成岗位定向版本</p></div></div>
     <div className="rewrite-steps" aria-label="简历优化进度"><button className={activeStep === 1 ? 'active' : ''} onClick={() => setActiveStep(1)}><span>01</span><b>明确目标</b></button><button className={activeStep === 2 ? 'active' : ''} disabled={!rewrite} onClick={() => rewrite && setActiveStep(2)}><span>02</span><b>确认改写</b></button><button className={activeStep === 3 ? 'active' : ''} disabled={!rewrite} onClick={openFinalDraft}><span>03</span><b>完成简历</b></button></div>
     {error && <div className="error-banner editorial-card"><b>暂未生成改写建议</b><span>{error}</span></div>}
     {loading && <div className="analysis-loading editorial-card" aria-live="polite"><div className="loading-orbit"><span></span><i></i><i></i><i></i></div><div className="loading-copy"><b>正在分析岗位与简历</b><p>匹配岗位要求、筛选高价值经历，并校验表达边界</p></div></div>}
