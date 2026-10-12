@@ -489,7 +489,7 @@ async function requestResumeRewrite({ resume, target, jd, company, businessUnit,
       consecutiveErrors += 1;
       if (consecutiveErrors >= 10) throw new Error('网络连接不稳定，请重新生成');
     }
-    if (Date.now() - startedAt > 120000) throw new Error('生成时间超出预期，请重新生成');
+    if (Date.now() - startedAt > 150000) throw new Error('生成时间超出预期，请重新生成');
     await wait(1000);
   }
 }

@@ -1263,46 +1263,56 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
         "stream": False,
         "response_format": {"type": "json_object"},
     }
-    try:
-        timeout = httpx.Timeout(90.0, connect=15.0)
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            response = await client.post(
-                "{0}/chat/completions".format(api_base_url().rstrip("/")),
-                headers=headers,
-                json=payload,
-            )
-        if response.status_code >= 400:
-            raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, response.text[:500]))
-        data = extract_json(response.json()["choices"][0]["message"]["content"])
-        candidates: List[tuple[float, RewriteBullet]] = []
-        for item in data.get("bullets", [])[:7]:
-            if not isinstance(item, dict):
-                continue
-            cleaned_after = clean_resume_bullet_after(item.get("after"))
-            similarity = resume_rewrite_similarity(item.get("before"), cleaned_after)
-            if similarity >= 0.98:
-                continue
-            candidates.append((similarity, RewriteBullet.parse_obj({**item, "after": cleaned_after})))
-        selected_ids = {id(bullet) for similarity, bullet in candidates if similarity < 0.88}
-        for _, bullet in sorted(candidates, key=lambda entry: entry[0]):
-            if len(selected_ids) >= min(5, len(candidates)):
-                break
-            selected_ids.add(id(bullet))
-        checked_bullets = [bullet for _, bullet in candidates if id(bullet) in selected_ids]
-        return ResumeRewriteResult(
-            target=request.target,
-            positioning=str(data.get("positioning", ""))[:120],
-            strategy=str(data.get("strategy", ""))[:500],
-            bullets=checked_bullets,
-            gaps=[str(item) for item in data.get("gaps", [])[:5]],
-            hr_intro=str(data.get("hr_intro", ""))[:220],
-            cautions=[str(item) for item in data.get("cautions", [])[:4]],
-            final_resume=str(data.get("final_resume") or request.resume)[:60000],
-            model=model_name(),
-        )
-    except Exception as error:
-        LOGGER.warning("AI rewrite attempt failed: %s", error)
-        raise HTTPException(status_code=502, detail="简历改写结果未通过结构校验，请稍后重试。") from error
+    timeout = httpx.Timeout(90.0, connect=15.0)
+    last_error: Optional[Exception] = None
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        for attempt in range(2):
+            try:
+                response = await client.post(
+                    "{0}/chat/completions".format(api_base_url().rstrip("/")),
+                    headers=headers,
+                    json=payload,
+                )
+                if response.status_code >= 400:
+                    raise RuntimeError("SiliconFlow error {0}: {1}".format(response.status_code, response.text[:500]))
+                data = extract_json(response.json()["choices"][0]["message"]["content"])
+                candidates: List[tuple[float, RewriteBullet]] = []
+                for item in data.get("bullets", [])[:7]:
+                    if not isinstance(item, dict):
+                        continue
+                    cleaned_after = clean_resume_bullet_after(item.get("after"))
+                    similarity = resume_rewrite_similarity(item.get("before"), cleaned_after)
+                    if similarity >= 0.98:
+                        continue
+                    candidates.append((similarity, RewriteBullet.parse_obj({**item, "after": cleaned_after})))
+                selected_ids = {id(bullet) for similarity, bullet in candidates if similarity < 0.88}
+                for _, bullet in sorted(candidates, key=lambda entry: entry[0]):
+                    if len(selected_ids) >= min(5, len(candidates)):
+                        break
+                    selected_ids.add(id(bullet))
+                checked_bullets = [bullet for _, bullet in candidates if id(bullet) in selected_ids]
+                if not checked_bullets:
+                    raise ValueError("No material rewrite bullets")
+                return ResumeRewriteResult(
+                    target=request.target,
+                    positioning=str(data.get("positioning", ""))[:120],
+                    strategy=str(data.get("strategy", ""))[:500],
+                    bullets=checked_bullets,
+                    gaps=[str(item) for item in data.get("gaps", [])[:3]],
+                    hr_intro=str(data.get("hr_intro", ""))[:220],
+                    cautions=[str(item) for item in data.get("cautions", [])[:3]],
+                    final_resume=str(data.get("final_resume") or request.resume)[:60000],
+                    model=model_name(),
+                )
+            except httpx.TimeoutException as error:
+                LOGGER.warning("AI rewrite request timed out: %s", error)
+                raise HTTPException(status_code=504, detail="简历改写超时，请重新生成") from error
+            except Exception as error:
+                last_error = error
+                LOGGER.warning("AI rewrite attempt %s failed: %s", attempt + 1, error)
+                if attempt == 0:
+                    await asyncio.sleep(0.6)
+    raise HTTPException(status_code=502, detail="简历改写结果未通过结构校验，请重新生成") from last_error
 
 
 app = FastAPI(
