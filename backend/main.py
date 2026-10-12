@@ -110,6 +110,15 @@ class ResumeRewriteResult(BaseModel):
     model: str
 
 
+class ResumeRewriteJobStatus(BaseModel):
+    job_id: str
+    status: str
+    result: Optional[ResumeRewriteResult] = None
+    error: str = ""
+    created_at: int
+    updated_at: int
+
+
 class AuthRequest(BaseModel):
     phone: str = Field(..., min_length=6, max_length=20)
     password: str = Field(..., min_length=6, max_length=72)
@@ -1492,6 +1501,63 @@ async def get_analysis_job_handler(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="生成任务不存在或已失效。")
     return analysis_job_response(job_id, job)
+
+
+async def process_rewrite_job(job_id: str, request: ResumeRewriteRequest) -> None:
+    now = int(time.time())
+    with _ANALYSIS_JOBS_LOCK:
+        _ANALYSIS_JOBS[job_id].update(status="processing", updated_at=now)
+    try:
+        result = await request_resume_rewrite(request)
+        now = int(time.time())
+        with _ANALYSIS_JOBS_LOCK:
+            _ANALYSIS_JOBS[job_id].update(status="completed", result=result.dict(), error="", updated_at=now)
+    except Exception as error:
+        LOGGER.exception("resume rewrite job failed: %s", job_id)
+        detail = getattr(error, "detail", "") or "简历优化失败，请重新生成。"
+        now = int(time.time())
+        with _ANALYSIS_JOBS_LOCK:
+            _ANALYSIS_JOBS[job_id].update(status="failed", error=str(detail)[:500], updated_at=now)
+
+
+def start_rewrite_job(job_id: str, request: ResumeRewriteRequest) -> None:
+    asyncio.run(process_rewrite_job(job_id, request))
+
+
+@app.post("/api/rewrite-jobs", response_model=AnalysisJobCreated)
+async def create_rewrite_job_handler(request: ResumeRewriteRequest):
+    job_id = "rewrite-{0}".format(uuid.uuid4().hex)
+    now = int(time.time())
+    with _ANALYSIS_JOBS_LOCK:
+        expired_before = now - 60 * 60
+        for old_job_id in [key for key, value in _ANALYSIS_JOBS.items() if value["updated_at"] < expired_before]:
+            _ANALYSIS_JOBS.pop(old_job_id, None)
+        _ANALYSIS_JOBS[job_id] = {
+            "status": "queued",
+            "result": None,
+            "error": "",
+            "created_at": now,
+            "updated_at": now,
+        }
+    threading.Thread(target=start_rewrite_job, args=(job_id, request), daemon=True).start()
+    return AnalysisJobCreated(job_id=job_id, status="queued")
+
+
+@app.get("/api/rewrite-jobs/{job_id}", response_model=ResumeRewriteJobStatus)
+async def get_rewrite_job_handler(job_id: str):
+    with _ANALYSIS_JOBS_LOCK:
+        job = dict(_ANALYSIS_JOBS.get(job_id) or {})
+    if not job or not job_id.startswith("rewrite-"):
+        raise HTTPException(status_code=404, detail="优化任务不存在或已失效。")
+    result = job.get("result")
+    return ResumeRewriteJobStatus(
+        job_id=job_id,
+        status=str(job["status"]),
+        result=ResumeRewriteResult.parse_obj(result) if result else None,
+        error=str(job.get("error") or ""),
+        created_at=int(job["created_at"]),
+        updated_at=int(job["updated_at"]),
+    )
 
 
 @app.post("/api/screen-jobs", response_model=ScreeningResponse)

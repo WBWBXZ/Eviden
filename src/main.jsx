@@ -404,13 +404,22 @@ async function requestResumeParse(file) {
 }
 
 async function requestResumeRewrite({ resume, target, jd, company, businessUnit }) {
-  return requestModelJson('/api/rewrite-resume', {
-    resume,
-    target,
-    jd,
-    company,
-    business_unit: businessUnit,
-  }, '简历优化失败，请稍后重试。');
+  const body = { resume, target, jd, company, business_unit: businessUnit };
+  const created = await apiJson('/api/rewrite-jobs', { method: 'POST', body });
+  let consecutiveErrors = 0;
+  for (;;) {
+    try {
+      const job = await apiJson(`/api/rewrite-jobs/${encodeURIComponent(created.job_id)}`);
+      consecutiveErrors = 0;
+      if (job.status === 'completed' && job.result) return job.result;
+      if (job.status === 'failed') throw new Error(job.error || '简历优化失败，请稍后重试。');
+    } catch (error) {
+      if (error.status || String(error.message || '').includes('失败')) throw error;
+      consecutiveErrors += 1;
+      if (consecutiveErrors >= 10) throw new Error('暂时无法查询优化进度，请重新生成。');
+    }
+    await wait(2000);
+  }
 }
 
 function Brand() {
