@@ -242,7 +242,7 @@ function shortText(text, length = 82) {
 
 function cleanResumeBulletAfter(value) {
   const text = String(value || '').trim();
-  const cleaned = text.replace(/[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,48}(?:能力|素养|意识|思维)[。]?$/, '').replace(/[，；。\s]+$/, '');
+  const cleaned = text.replace(/[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,60}[。]?$/, '').replace(/[，；。\s]+$/, '');
   return cleaned && text.endsWith('。') ? `${cleaned}。` : cleaned || text;
 }
 

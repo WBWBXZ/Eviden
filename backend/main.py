@@ -1180,7 +1180,7 @@ async def request_screening(request: ScreeningRequest) -> ScreeningResponse:
 def clean_resume_bullet_after(value: Any) -> str:
     text = str(value or "").strip()
     cleaned = re.sub(
-        r"[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,48}(?:能力|素养|意识|思维)[。]?$",
+        r"[，；。]?\s*(?:体现|展现|彰显)(?:了)?[^，；。]{0,60}[。]?$",
         "",
         text,
     ).rstrip("，；。 ")
