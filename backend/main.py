@@ -1210,6 +1210,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
 
+    bullet_target = 5 if len(request.resume) > 2000 or len(request.jd or "") > 4000 else 7
     system_prompt = """你是中文求职简历改写顾问，方法来自 /great-resume 与 /make-resume：只基于用户简历里的事实做表达优化，不捏造公司、职位、时间、指标或项目。输出要产品化、克制、可直接复制到简历。严格返回 JSON。"""
     user_prompt = """目标岗位：{target}
 目标公司：{company}
@@ -1231,7 +1232,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
   "cautions":["不能写进简历的风险点，最多3条"]
 }}
 要求：
-1. bullets 目标输出7条；优先覆盖工作经历、项目经历和与目标岗位最相关的不同证据。不能为了凑数重复同一事实；如果确实不足7条，至少输出5条真正值得改的内容。
+1. bullets 输出{bullet_target}条；优先覆盖工作经历、项目经历和与目标岗位最相关的不同证据。不能为了凑数重复同一事实。
 2. before 必须逐字来自简历原文并保持足够完整，以便系统准确合并。
 3. after 的目标不是缩短文字或替换同义词，而是进行实质性重构：明确业务场景、用户/问题、个人动作、关键判断、协作边界和结果证据。
 4. after 应保留 before 中所有有价值的事实、指标和专有名词；信息密度只能提高，不能因为追求简洁而删除关键背景。建议长度为 before 的 0.8 到 1.4 倍。
@@ -1246,6 +1247,7 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
         business_unit=request.business_unit or "未提供",
         resume=request.resume,
         jd=request.jd or "未提供",
+        bullet_target=bullet_target,
     )
     headers = {
         "Authorization": "Bearer {0}".format(api_key),
@@ -1258,12 +1260,12 @@ async def request_resume_rewrite(request: ResumeRewriteRequest) -> ResumeRewrite
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.15,
-        "max_tokens": 2400,
+        "max_tokens": 1800 if bullet_target == 5 else 2200,
         "enable_thinking": False,
         "stream": False,
         "response_format": {"type": "json_object"},
     }
-    timeout = httpx.Timeout(90.0, connect=15.0)
+    timeout = httpx.Timeout(70.0, connect=12.0)
     last_error: Optional[Exception] = None
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         for attempt in range(2):
