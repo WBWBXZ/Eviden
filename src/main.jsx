@@ -1289,6 +1289,58 @@ function mergeHistory(localRecords, cloudReports) {
   return Array.from(byId.values()).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 30);
 }
 
+function compactReportForCopilot(record) {
+  if (!record) return null;
+  const report = record.result || record;
+  return {
+    id: record.id || report.id || '',
+    created_at: record.createdAt || record.created_at || '',
+    target: record.target || report.target || '',
+    company: record.company || report.company || '',
+    resume_name: record.resumeName || report.resumeName || '',
+    jd_name: record.jdName || report.jdName || '',
+    score: report.score ?? null,
+    action: report.action || '',
+    summary: report.summary || '',
+    confidence: report.confidence_label || '',
+    evidence: (report.evidence || []).slice(0, 6).map(item => ({
+      requirement: item.req || '',
+      level: item.level || '',
+      proof: item.proof || '',
+      diagnosis: item.diagnosis || '',
+      suggestion: item.suggestion || '',
+    })),
+    gaps: (report.gaps || []).slice(0, 6),
+    actions: (report.actions || []).slice(0, 6),
+    rewrites: (report.rewrites || []).slice(0, 6),
+    questions: (report.questions || []).slice(0, 6),
+  };
+}
+
+function compactRewriteForCopilot(record) {
+  if (!record) return null;
+  const rewrite = record.result || record;
+  return {
+    id: record.id || rewrite.id || '',
+    target: record.target || rewrite.target || '',
+    positioning: rewrite.positioning || '',
+    strategy: rewrite.strategy || '',
+    bullets: (rewrite.bullets || []).slice(0, 8),
+    gaps: (rewrite.gaps || []).slice(0, 6),
+    hr_intro: rewrite.hr_intro || '',
+    cautions: (rewrite.cautions || []).slice(0, 6),
+  };
+}
+
+function compactResumeForCopilot(resume) {
+  if (!resume) return null;
+  return {
+    filename: resume.filename || '',
+    char_count: resume.char_count || resume.charCount || 0,
+    preview: resume.preview || String(resume.resume_text || resume.resumeText || '').slice(0, 1200),
+  };
+}
+
 function App() {
   const [step, setStep] = useState(() => localStorage.getItem(PENDING_ANALYSIS_KEY) ? 'input' : 'landing');
   const [previousStep, setPreviousStep] = useState('landing');
@@ -1523,7 +1575,19 @@ function App() {
   };
   const copilotPage = ['landing', 'screening', 'rewrite', 'input', 'history', 'compare'].includes(step) ? step : 'result';
   const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : result?.jdName || result?.target || '当前分析报告';
-  const copilotData = step === 'landing' ? { latest_report: history[0] || null } : step === 'screening' ? { current_screening: selectedScreening, recent_screenings: screeningHistory.slice(0, 3) } : step === 'rewrite' ? { current_rewrite: selectedRewrite || rewriteContext, default_resume: getCachedDefaultResume(user?.id) } : step === 'input' ? { default_resume: getCachedDefaultResume(user?.id) } : step === 'history' ? { reports: history.slice(0, 6), screenings: screeningHistory.slice(0, 4), rewrites: rewriteHistory.slice(0, 4) } : step === 'compare' ? { reports: compareRecords.slice(0, 4) } : { report: result };
+  const copilotData = step === 'landing'
+    ? { latest_report: compactReportForCopilot(history[0]) }
+    : step === 'screening'
+      ? { current_screening: selectedScreening, recent_screenings: screeningHistory.slice(0, 3) }
+      : step === 'rewrite'
+        ? { current_rewrite: compactRewriteForCopilot(selectedRewrite || rewriteContext), default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)) }
+        : step === 'input'
+          ? { default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)) }
+          : step === 'history'
+            ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
+            : step === 'compare'
+              ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
+              : { report: compactReportForCopilot(result) };
   const withAuth = page => <>{page}<EvidenCopilot token={token} page={copilotPage} contextLabel={copilotContext} context={copilotData} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
