@@ -24,11 +24,9 @@ import uvicorn
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from psycopg2.pool import ThreadedConnectionPool
 except ImportError:  # pragma: no cover - SQLite fallback still works without Postgres dependency.
     psycopg2 = None
     RealDictCursor = None
-    ThreadedConnectionPool = None
 from docx import Document
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -54,8 +52,6 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     db_user = quote(os.getenv("SUPABASE_DB_USER", "postgres"), safe="")
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
-_DB_POOL = None
-_DB_POOL_LOCK = threading.Lock()
 _ANALYSIS_JOBS: Dict[str, Dict[str, Any]] = {}
 _ANALYSIS_JOBS_LOCK = threading.Lock()
 DIMENSION_WEIGHTS = {
@@ -376,44 +372,21 @@ def use_postgres() -> bool:
 
 @contextmanager
 def db_connection():  # type: ignore[no-untyped-def]
-    global _DB_POOL
     if use_postgres():
-        if psycopg2 is None or ThreadedConnectionPool is None:
+        if psycopg2 is None:
             raise RuntimeError("Postgres dependency is not installed")
-        if _DB_POOL is None:
-            with _DB_POOL_LOCK:
-                if _DB_POOL is None:
-                    _DB_POOL = ThreadedConnectionPool(
-                        1,
-                        6,
-                        database_url(),
-                        cursor_factory=RealDictCursor,
-                        connect_timeout=6,
-                        keepalives=1,
-                        keepalives_idle=5,
-                        keepalives_interval=2,
-                        keepalives_count=2,
-                        tcp_user_timeout=6000,
-                        sslmode="require",
-                        options="-c statement_timeout=15000",
-                    )
-        connection = None
-        for attempt in range(2):
-            candidate = _DB_POOL.getconn()
-            try:
-                with candidate.cursor() as health_cursor:
-                    health_cursor.execute("SET statement_timeout = 3000")
-                    health_cursor.execute("SELECT 1")
-                    health_cursor.fetchone()
-                    health_cursor.execute("SET statement_timeout = 15000")
-                connection = candidate
-                break
-            except Exception:
-                _DB_POOL.putconn(candidate, close=True)
-                if attempt == 1:
-                    raise
-        if connection is None:
-            raise RuntimeError("Could not obtain a healthy database connection")
+        connection = psycopg2.connect(
+            database_url(),
+            cursor_factory=RealDictCursor,
+            connect_timeout=6,
+            keepalives=1,
+            keepalives_idle=5,
+            keepalives_interval=2,
+            keepalives_count=2,
+            tcp_user_timeout=6000,
+            sslmode="require",
+            options="-c statement_timeout=15000",
+        )
         try:
             yield connection
             connection.commit()
@@ -421,7 +394,7 @@ def db_connection():  # type: ignore[no-untyped-def]
             connection.rollback()
             raise
         finally:
-            _DB_POOL.putconn(connection)
+            connection.close()
         return
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
