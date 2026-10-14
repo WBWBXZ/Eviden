@@ -375,18 +375,29 @@ def db_connection():  # type: ignore[no-untyped-def]
     if use_postgres():
         if psycopg2 is None:
             raise RuntimeError("Postgres dependency is not installed")
-        connection = psycopg2.connect(
-            database_url(),
-            cursor_factory=RealDictCursor,
-            connect_timeout=6,
-            keepalives=1,
-            keepalives_idle=5,
-            keepalives_interval=2,
-            keepalives_count=2,
-            tcp_user_timeout=6000,
-            sslmode="require",
-            options="-c statement_timeout=15000",
-        )
+        connection = None
+        last_error = None
+        for attempt in range(3):
+            try:
+                connection = psycopg2.connect(
+                    database_url(),
+                    cursor_factory=RealDictCursor,
+                    connect_timeout=6,
+                    keepalives=1,
+                    keepalives_idle=5,
+                    keepalives_interval=2,
+                    keepalives_count=2,
+                    tcp_user_timeout=6000,
+                    sslmode="require",
+                    options="-c statement_timeout=15000",
+                )
+                break
+            except Exception as error:
+                last_error = error
+                if attempt < 2:
+                    time.sleep(0.6 * (attempt + 1))
+        if connection is None:
+            raise RuntimeError("Could not connect to the database") from last_error
         try:
             yield connection
             connection.commit()
