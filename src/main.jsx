@@ -8,6 +8,7 @@ import {
   FileText,
   Route,
   Send,
+  Square,
   UploadCloud,
   X,
 } from 'lucide-react';
@@ -496,6 +497,43 @@ async function requestResumeRewrite({ resume, target, jd, company, businessUnit,
   }
 }
 
+async function streamCopilotReply({ token, message, messages, page, contextLabel, context, signal, onDelta }) {
+  const response = await fetch(`${API_BASE_URL}/api/copilot/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ message, messages, page, context_label: contextLabel, context }),
+    signal,
+  });
+  if (!response.ok) {
+    let detail = 'Evi 暂时无法回答，请稍后重试';
+    try {
+      const data = await response.json();
+      detail = typeof data.detail === 'string' ? data.detail : detail;
+    } catch {
+      // Keep the product-facing fallback.
+    }
+    throw new Error(detail);
+  }
+  if (!response.body) throw new Error('当前浏览器不支持流式回答');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() || '';
+    for (const block of blocks) {
+      const line = block.split('\n').find(item => item.startsWith('data:'));
+      if (!line) continue;
+      const event = JSON.parse(line.slice(5).trim());
+      if (event.type === 'delta' && event.content) onDelta(event.content);
+      if (event.type === 'error') throw new Error(event.message || 'Evi 暂时无法回答');
+    }
+  }
+}
+
 function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
 }
@@ -507,22 +545,62 @@ function CuteRobot({ compact = false }) {
   </span>;
 }
 
-function EvidenCopilot({ contextLabel, onOpenRewrite }) {
+function EvidenCopilot({ token, page, contextLabel, context }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
-  const quickQuestions = ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
-  const sendMessage = value => {
+  const [streaming, setStreaming] = useState(false);
+  const controllerRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const quickQuestions = page === 'rewrite' ? ['哪条建议最值得采用', '这次改写有没有夸大', '下一步怎么完善'] : page === 'result' ? ['为什么建议我投递', '我最大的缺口是什么', '下一步应该做什么'] : ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
+
+  useEffect(() => {
+    if (open) messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [messages, open]);
+
+  const sendMessage = async value => {
     const text = String(value || input).trim();
-    if (!text) return;
-    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: '这是 Evi 的交互设计预览。接入模型后，我会结合当前页面、简历和岗位要求回答，并给出对应依据和下一步', cards: true }]);
+    if (!text || streaming) return;
+    if (!token) {
+      setMessages(current => [...current, { id: `assistant-${Date.now()}`, role: 'assistant', text: '登录后就可以和我连续对话' }]);
+      return;
+    }
+    const priorMessages = messages.filter(message => message.text && !message.error).map(message => ({ role: message.role, content: message.text }));
+    const assistantId = `assistant-${Date.now()}`;
+    setMessages(current => [...current, { id: `user-${Date.now()}`, role: 'user', text }, { id: assistantId, role: 'assistant', text: '' }]);
     setInput('');
+    setStreaming(true);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    try {
+      await streamCopilotReply({
+        token,
+        message: text,
+        messages: priorMessages,
+        page,
+        contextLabel,
+        context,
+        signal: controller.signal,
+        onDelta: delta => setMessages(current => current.map(message => message.id === assistantId ? { ...message, text: `${message.text}${delta}` } : message)),
+      });
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        setMessages(current => current.map(message => message.id === assistantId && !message.text ? { ...message, text: '已停止生成' } : message));
+      } else {
+        setMessages(current => current.map(message => message.id === assistantId ? { ...message, text: error.message || 'Evi 暂时无法回答', error: true } : message));
+      }
+    } finally {
+      controllerRef.current = null;
+      setStreaming(false);
+    }
   };
+
+  const stopStreaming = () => controllerRef.current?.abort();
 
   return <>
     {open && <aside className="copilot-drawer" aria-label="Evi AI 助手">
       <header className="copilot-head">
-        <div className="copilot-identity"><CuteRobot compact /><div><b>Evi</b><span>EVIDEN AI 助手</span></div></div>
+        <div className="copilot-identity"><CuteRobot compact /><div><b>Evi</b><span>{streaming ? '正在回答' : 'EVIDEN AI 助手'}</span></div></div>
         <button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Evi"><X size={18} /></button>
       </header>
       <div className="copilot-context"><small>正在查看</small><b>{contextLabel}</b></div>
@@ -531,23 +609,16 @@ function EvidenCopilot({ contextLabel, onOpenRewrite }) {
           <CuteRobot compact />
           <div className="copilot-bubble"><p>你好，我是 Evi。你可以直接问我当前页面、岗位或简历相关的问题</p></div>
         </div>
-        <div className="copilot-message assistant">
-          <CuteRobot compact />
-          <div className="copilot-bubble">
-            <p>例如我可以先给出结论，再把回答依据和建议动作放进对话里</p>
-            <div className="copilot-card evidence"><small>简历证据</small><b>AI Agent 与 Prompt 工作流迭代</b><p>这段经历可以回应岗位对 AI 产品实践的要求</p></div>
-            <div className="copilot-card action"><small>建议行动</small><b>补充一条可验证的结果</b><p>说明你推动了什么变化，以及如何判断效果</p><button type="button" onClick={() => { setOpen(false); onOpenRewrite?.(); }}>去优化简历 <ChevronRight size={14} /></button></div>
-          </div>
-        </div>
-        {messages.map((message, index) => <div className={`copilot-message ${message.role}`} key={`${message.role}-${index}`}>
+        {messages.map(message => <div className={`copilot-message ${message.role} ${message.error ? 'error' : ''}`} key={message.id}>
           {message.role === 'assistant' && <CuteRobot compact />}
-          <div className="copilot-bubble"><p>{message.text}</p>{message.cards && <><div className="copilot-card evidence"><small>回答依据</small><b>当前页面上下文</b><p>正式版本会引用具体简历内容和岗位要求</p></div><div className="copilot-card action"><small>下一步</small><b>确认设计后接入真实模型</b></div></>}</div>
+          <div className="copilot-bubble"><p>{message.text || <span className="copilot-thinking">正在思考</span>}</p></div>
         </div>)}
+        <div ref={messagesEndRef}></div>
       </div>
-      <div className="copilot-quick"><small>你可以这样问</small><div>{quickQuestions.map(question => <button key={question} onClick={() => sendMessage(question)}>{question}</button>)}</div></div>
+      <div className="copilot-quick"><small>你可以这样问</small><div>{quickQuestions.map(question => <button key={question} onClick={() => sendMessage(question)} disabled={streaming}>{question}</button>)}</div></div>
       <form className="copilot-composer" onSubmit={event => { event.preventDefault(); sendMessage(); }}>
-        <textarea value={input} onChange={event => setInput(event.target.value)} placeholder="输入你的问题" rows="2" />
-        <button type="submit" disabled={!input.trim()} aria-label="发送"><Send size={17} /></button>
+        <textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } }} placeholder="输入你的问题" rows="2" disabled={streaming} />
+        {streaming ? <button type="button" onClick={stopStreaming} aria-label="停止生成"><Square size={15} fill="currentColor" /></button> : <button type="submit" disabled={!input.trim()} aria-label="发送"><Send size={17} /></button>}
       </form>
     </aside>}
     <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Evi' : '打开 Evi'}>
@@ -1450,8 +1521,10 @@ function App() {
     setShowAuth(false);
     setPendingStep('');
   };
+  const copilotPage = ['landing', 'screening', 'rewrite', 'input', 'history', 'compare'].includes(step) ? step : 'result';
   const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : result?.jdName || result?.target || '当前分析报告';
-  const withAuth = page => <>{page}<EvidenCopilot contextLabel={copilotContext} onOpenRewrite={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
+  const copilotData = step === 'landing' ? { latest_report: history[0] || null } : step === 'screening' ? { current_screening: selectedScreening, recent_screenings: screeningHistory.slice(0, 3) } : step === 'rewrite' ? { current_rewrite: selectedRewrite || rewriteContext, default_resume: getCachedDefaultResume(user?.id) } : step === 'input' ? { default_resume: getCachedDefaultResume(user?.id) } : step === 'history' ? { reports: history.slice(0, 6), screenings: screeningHistory.slice(0, 4), rewrites: rewriteHistory.slice(0, 4) } : step === 'compare' ? { reports: compareRecords.slice(0, 4) } : { report: result };
+  const withAuth = page => <>{page}<EvidenCopilot token={token} page={copilotPage} contextLabel={copilotContext} context={copilotData} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);

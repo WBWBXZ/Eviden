@@ -369,3 +369,7 @@
 @keyframes evi-float{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-7px) rotate(1.5deg)}}@keyframes evi-shadow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.28;transform:scale(.78)}}@keyframes evi-pulse{0%{opacity:.5;transform:scale(.82)}55%,100%{opacity:0;transform:scale(1.22)}}@keyframes evi-blink{0%,45%,49%,100%{transform:scaleY(1)}47%{transform:scaleY(.12)}}@keyframes evi-label-breathe{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-2px) scale(1.015)}}
 @media(max-width:640px){.copilot-launcher{right:12px;bottom:12px}}
 @media(prefers-reduced-motion:reduce){.copilot-launcher:before,.copilot-launcher:after,.copilot-launcher .copilot-robot:not(.compact),.copilot-launcher .robot-eye{animation:none}}
+
+/* Evi live conversation */
+.copilot-bubble>p{white-space:pre-wrap}.copilot-message.error .copilot-bubble{border-color:#b5483a;background:#fff1ed;color:#8a2f24}.copilot-thinking{display:inline-flex;align-items:center;gap:3px;color:#6d675e}.copilot-thinking:after{content:"";width:18px;height:5px;background:radial-gradient(circle,#6d675e 2px,transparent 2.5px) 0 50%/6px 6px repeat-x;animation:evi-thinking 1.1s linear infinite}.copilot-composer textarea:disabled{opacity:.72}.copilot-quick button:disabled{cursor:default;opacity:.5}@keyframes evi-thinking{to{background-position:6px 50%}}
+@media(prefers-reduced-motion:reduce){.copilot-thinking:after{animation:none}}
