@@ -452,6 +452,16 @@ def execute_sql(sql: str, params: tuple = ()) -> None:
         connection.execute(sql, params)
 
 
+def execute_sql_rowcount(sql: str, params: tuple = ()) -> int:
+    with db_connection() as connection:
+        if use_postgres():
+            with connection.cursor() as cursor:
+                cursor.execute(sql_params(sql), params)
+                return int(cursor.rowcount or 0)
+        cursor = connection.execute(sql, params)
+        return int(cursor.rowcount or 0)
+
+
 def init_db() -> None:
     if use_postgres():
         statements = [
@@ -1687,10 +1697,12 @@ async def parse_resume_json_handler(request: ResumeParseJsonRequest):
 
 async def process_analysis_job(job_id: str, request: AnalyzeRequest, user_id: int) -> None:
     now = int(time.time())
-    execute_sql(
-        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-        ("processing", now, job_id, user_id),
+    claimed = execute_sql_rowcount(
+        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = ?",
+        ("processing", now, job_id, user_id, "queued"),
     )
+    if claimed != 1:
+        return
     try:
         payload = await request_analysis(request)
         result = normalize_result(payload, request)
@@ -1731,13 +1743,24 @@ async def create_analysis_job_handler(request: AnalyzeRequest, user: UserInfo = 
     request_key = re.sub(r"[^a-zA-Z0-9_-]", "", request.client_request_id or "")[:64]
     job_id = "analysis-{0}-{1}".format(user.id, request_key or uuid.uuid4().hex)
     existing = fetch_one(
-        "SELECT status FROM analysis_jobs WHERE id = ? AND user_id = ?",
+        "SELECT status, updated_at FROM analysis_jobs WHERE id = ? AND user_id = ?",
         (job_id, user.id),
     )
-    if existing is not None and str(existing["status"]) != "failed":
-        return AnalysisJobCreated(job_id=job_id, status=str(existing["status"]))
-
     now = int(time.time())
+    if existing is not None and str(existing["status"]) != "failed":
+        status = str(existing["status"])
+        if status == "queued":
+            threading.Thread(target=start_analysis_job, args=(job_id, request, user.id), daemon=True).start()
+        elif status == "processing" and now - int(existing["updated_at"]) > 180:
+            reset = execute_sql_rowcount(
+                "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = ? AND updated_at = ?",
+                ("queued", now, job_id, user.id, "processing", int(existing["updated_at"])),
+            )
+            if reset == 1:
+                threading.Thread(target=start_analysis_job, args=(job_id, request, user.id), daemon=True).start()
+                status = "queued"
+        return AnalysisJobCreated(job_id=job_id, status=status)
+
     request_json = json.dumps(request.dict(), ensure_ascii=False)
     if existing is None:
         execute_sql(
@@ -1771,7 +1794,15 @@ async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current
 
     status = str(row["status"])
     updated_at = int(row["updated_at"])
-    if status == "queued" or (status == "processing" and int(time.time()) - updated_at > 180):
+    age = int(time.time()) - updated_at
+    should_resume = status == "queued" and age > 15
+    if status == "processing" and age > 180:
+        reset = execute_sql_rowcount(
+            "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = ? AND updated_at = ?",
+            ("queued", int(time.time()), job_id, user.id, "processing", updated_at),
+        )
+        should_resume = reset == 1
+    if should_resume:
         try:
             request = AnalyzeRequest.parse_obj(json.loads(str(row["request_json"])))
             threading.Thread(target=start_analysis_job, args=(job_id, request, user.id), daemon=True).start()

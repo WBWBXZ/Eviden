@@ -1442,7 +1442,7 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
       ...item,
       ...patch,
       updatedAt: new Date().toISOString(),
-      activities: activityText ? [{ id: `activity-${Date.now()}`, time: new Date().toISOString(), type: 'update', content: activityText }, ...(item.activities || [])] : item.activities,
+      activities: activityText ? [{ id: `activity-${createRequestId()}`, time: new Date().toISOString(), type: 'update', content: activityText }, ...(item.activities || [])] : item.activities,
     }));
   };
   const setStatus = (record, status) => update(record.id, { status }, `状态更新为「${applicationStatusLabel(status)}」`);
@@ -1845,8 +1845,18 @@ function App() {
     }
     const now = new Date().toISOString();
     const record = {
-      id: `application-${Date.now()}`,
+      id: `application-${createRequestId()}`,
       reportId: reportForResult.id,
+      reportSnapshot: {
+        id: reportForResult.id,
+        createdAt: reportForResult.createdAt,
+        target: reportForResult.target,
+        company: reportForResult.company,
+        businessUnit: reportForResult.businessUnit,
+        resumeName: reportForResult.resumeName,
+        jdName: reportForResult.jdName,
+        result: reportForResult.result,
+      },
       rewriteId: '',
       target: reportForResult.target || result?.target || result?.jdName || '目标岗位',
       company: reportForResult.company || '',
@@ -1857,7 +1867,7 @@ function App() {
       dueDate: '',
       createdAt: now,
       updatedAt: now,
-      activities: [{ id: `activity-${Date.now()}`, time: now, type: 'created', content: '从岗位报告加入投递计划' }],
+      activities: [{ id: `activity-${createRequestId()}`, time: now, type: 'created', content: '从岗位报告加入投递计划' }],
     };
     updateApplications([record, ...applications]);
     setPreviousStep('result');
@@ -1865,8 +1875,9 @@ function App() {
   };
 
   const viewApplicationReport = reportId => {
-    const record = history.find(item => item.id === reportId);
-    if (record) viewRecord(record);
+    const record = history.find(item => item.id === reportId)
+      || applications.find(item => item.reportId === reportId)?.reportSnapshot;
+    if (record?.result) viewRecord(record);
   };
 
   const backFromCurrent = () => setStep(previousStep || 'landing');
@@ -1888,7 +1899,7 @@ function App() {
           : step === 'history'
             ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4).map(compactScreeningForCopilot), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
             : step === 'applications'
-              ? { applications: applications.slice(0, 20).map(item => ({ target: item.target, company: item.company, status: applicationStatusLabel(item.status), next_action: item.nextAction, due_date: item.dueDate, updated_at: item.updatedAt, activities: (item.activities || []).slice(0, 4) })) }
+              ? { applications: applications.slice().sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt)).slice(0, 20).map(item => ({ target: item.target, company: item.company, status: applicationStatusLabel(item.status), next_action: item.nextAction, due_date: item.dueDate, updated_at: item.updatedAt, activities: (item.activities || []).slice(0, 4) })) }
               : step === 'compare'
                 ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
                 : { report: compactReportForCopilot(result) };
