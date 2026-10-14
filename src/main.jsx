@@ -601,8 +601,6 @@ function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate 
   const controllerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const quickQuestions = page === 'rewrite' ? ['哪条建议最值得采用', '这次改写有没有夸大', '下一步怎么完善'] : page === 'result' ? ['为什么建议我投递', '我最大的缺口是什么', '下一步应该做什么'] : page === 'screening' || page === 'compare' ? ['哪个岗位更值得投', '对比我的主要缺口', '给我投递优先级'] : ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
-  const memoryCount = memory.goals.length + memory.preferences.length + memory.facts.length;
-  const profile = context?.capability_profile;
 
   useEffect(() => {
     localStorage.setItem(messagesKey, JSON.stringify(messages.slice(-40)));
@@ -620,11 +618,6 @@ function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate 
     controllerRef.current?.abort();
     setMessages([]);
     localStorage.removeItem(messagesKey);
-  };
-
-  const clearMemory = () => {
-    setMemory({ goals: [], preferences: [], facts: [] });
-    localStorage.removeItem(memoryKey);
   };
 
   const sendMessage = async value => {
@@ -684,7 +677,6 @@ function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate 
         <div className="copilot-head-actions"><button onClick={clearConversation} aria-label="清空对话" title="清空对话"><Trash2 size={16} /></button><button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Evi"><X size={18} /></button></div>
       </header>
       <div className="copilot-context"><small>正在查看</small><b>{contextLabel}</b></div>
-      {profile || memoryCount > 0 ? <div className="copilot-profile-strip"><div><small>能力档案</small><b>{profile?.headline || `已记住 ${memoryCount} 项长期信息`}</b></div>{memoryCount > 0 ? <button onClick={clearMemory}>清除记忆</button> : null}</div> : null}
       <div className="copilot-messages">
         <div className="copilot-message assistant">
           <CuteRobot compact />
