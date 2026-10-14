@@ -55,6 +55,7 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
+_DB_POOL_LOCK = threading.Lock()
 _ANALYSIS_JOBS: Dict[str, Dict[str, Any]] = {}
 _ANALYSIS_JOBS_LOCK = threading.Lock()
 DIMENSION_WEIGHTS = {
@@ -380,28 +381,40 @@ def db_connection():  # type: ignore[no-untyped-def]
         if psycopg2 is None or ThreadedConnectionPool is None:
             raise RuntimeError("Postgres dependency is not installed")
         if _DB_POOL is None:
-            _DB_POOL = ThreadedConnectionPool(
-                1,
-                6,
-                database_url(),
-                cursor_factory=RealDictCursor,
-                connect_timeout=8,
-                keepalives=1,
-                keepalives_idle=10,
-                keepalives_interval=5,
-                keepalives_count=3,
-                sslmode="require",
-                options="-c statement_timeout=15000",
-            )
-        connection = _DB_POOL.getconn()
-        try:
+            with _DB_POOL_LOCK:
+                if _DB_POOL is None:
+                    _DB_POOL = ThreadedConnectionPool(
+                        1,
+                        6,
+                        database_url(),
+                        cursor_factory=RealDictCursor,
+                        connect_timeout=6,
+                        keepalives=1,
+                        keepalives_idle=5,
+                        keepalives_interval=2,
+                        keepalives_count=2,
+                        tcp_user_timeout=6000,
+                        sslmode="require",
+                        options="-c statement_timeout=15000",
+                    )
+        connection = None
+        for attempt in range(2):
+            candidate = _DB_POOL.getconn()
             try:
-                with connection.cursor() as health_cursor:
+                with candidate.cursor() as health_cursor:
+                    health_cursor.execute("SET statement_timeout = 3000")
                     health_cursor.execute("SELECT 1")
                     health_cursor.fetchone()
+                    health_cursor.execute("SET statement_timeout = 15000")
+                connection = candidate
+                break
             except Exception:
-                _DB_POOL.putconn(connection, close=True)
-                connection = _DB_POOL.getconn()
+                _DB_POOL.putconn(candidate, close=True)
+                if attempt == 1:
+                    raise
+        if connection is None:
+            raise RuntimeError("Could not obtain a healthy database connection")
+        try:
             yield connection
             connection.commit()
         except Exception:
@@ -1374,7 +1387,7 @@ async def startup_handler():
 
 
 @app.post("/api/auth/register", response_model=AuthResponse)
-async def register_handler(request: AuthRequest):
+def register_handler(request: AuthRequest):
     now = int(time.time())
     password_hash = hash_password(request.password)
     try:
@@ -1388,7 +1401,7 @@ async def register_handler(request: AuthRequest):
 
 
 @app.post("/api/auth/login", response_model=AuthResponse)
-async def login_handler(request: AuthRequest):
+def login_handler(request: AuthRequest):
     row, token = authenticate_and_create_session(request.phone, request.password)
     if row is None:
         raise HTTPException(status_code=401, detail="手机号或密码不正确")
@@ -1396,12 +1409,12 @@ async def login_handler(request: AuthRequest):
 
 
 @app.get("/api/auth/me", response_model=UserInfo)
-async def me_handler(user: UserInfo = Depends(current_user)):
+def me_handler(user: UserInfo = Depends(current_user)):
     return user
 
 
 @app.get("/api/reports", response_model=CloudReportsResponse)
-async def list_reports_handler(user: UserInfo = Depends(current_user)):
+def list_reports_handler(user: UserInfo = Depends(current_user)):
     rows = fetch_all(
         "SELECT id, record_json, updated_at FROM reports WHERE user_id = ? ORDER BY updated_at DESC",
         (user.id,),
@@ -1414,7 +1427,7 @@ async def list_reports_handler(user: UserInfo = Depends(current_user)):
 
 
 @app.post("/api/reports", response_model=CloudReport)
-async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
+def save_report_handler(request: CloudReportRequest, user: UserInfo = Depends(current_user)):
     now = int(time.time())
     record_json = json.dumps(request.record, ensure_ascii=False)
     execute_sql(
@@ -1428,13 +1441,13 @@ async def save_report_handler(request: CloudReportRequest, user: UserInfo = Depe
 
 
 @app.delete("/api/reports/{report_id}")
-async def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
+def delete_report_handler(report_id: str, user: UserInfo = Depends(current_user)):
     execute_sql("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user.id))
     return {"ok": True}
 
 
 @app.get("/api/default-resume", response_model=DefaultResumeResponse)
-async def get_default_resume_handler(user: UserInfo = Depends(current_user)):
+def get_default_resume_handler(user: UserInfo = Depends(current_user)):
     row = fetch_one(
         """
         SELECT filename, resume_text, char_count, preview, updated_at
@@ -1447,7 +1460,7 @@ async def get_default_resume_handler(user: UserInfo = Depends(current_user)):
 
 
 @app.put("/api/default-resume", response_model=DefaultResumeResponse)
-async def put_default_resume_handler(request: DefaultResumeRequest, user: UserInfo = Depends(current_user)):
+def put_default_resume_handler(request: DefaultResumeRequest, user: UserInfo = Depends(current_user)):
     now = int(time.time())
     char_count = len(request.resume_text)
     preview = request.resume_text[:260]
@@ -1475,7 +1488,7 @@ async def put_default_resume_handler(request: DefaultResumeRequest, user: UserIn
 
 
 @app.delete("/api/default-resume", response_model=DeleteResponse)
-async def delete_default_resume_handler(user: UserInfo = Depends(current_user)):
+def delete_default_resume_handler(user: UserInfo = Depends(current_user)):
     execute_sql("DELETE FROM user_resumes WHERE user_id = ?", (user.id,))
     return DeleteResponse(ok=True)
 
@@ -1733,7 +1746,7 @@ async def create_rewrite_job_handler(request: ResumeRewriteRequest, user: UserIn
 
 
 @app.get("/api/rewrite-jobs/{job_id}", response_model=ResumeRewriteJobStatus)
-async def get_rewrite_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
+def get_rewrite_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
     row = fetch_one(
         """
         SELECT status, result_json, error, created_at, updated_at
