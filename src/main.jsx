@@ -592,7 +592,10 @@ function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate 
   const memoryKey = copilotStorageKey(COPILOT_MEMORY_KEY_PREFIX, userId);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState(() => safeParse(localStorage.getItem(messagesKey), []));
+  const [messages, setMessages] = useState(() => {
+    const stored = safeParse(localStorage.getItem(messagesKey), []);
+    return Array.isArray(stored) ? stored : [];
+  });
   const [memory, setMemory] = useState(() => normalizeCopilotMemory(safeParse(localStorage.getItem(memoryKey), {})));
   const [streaming, setStreaming] = useState(false);
   const controllerRef = useRef(null);
