@@ -677,6 +677,15 @@ def current_user(authorization: Optional[str] = Header(default=None)) -> UserInf
     return user_from_row(row)
 
 
+def copilot_session(authorization: Optional[str] = Header(default=None)) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="请先登录")
+    token = authorization.split(" ", 1)[1].strip()
+    if len(token) < 20:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+
+
 def clean_resume_text(text: str) -> str:
     text = re.sub(r"\r\n?", "\n", text)
     text = re.sub(r"[ \t]+", " ", text)
@@ -1496,7 +1505,7 @@ async def health_handler():
 
 
 @app.post("/api/copilot/chat")
-async def copilot_chat_handler(request: CopilotChatRequest, user: UserInfo = Depends(current_user)):
+async def copilot_chat_handler(request: CopilotChatRequest, session_key: str = Depends(copilot_session)):
     api_key = get_secret("SILICONFLOW_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="AI service is not configured")
@@ -1570,7 +1579,7 @@ async def copilot_chat_handler(request: CopilotChatRequest, user: UserInfo = Dep
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            LOGGER.warning("copilot stream failed for user %s: %s", user.id, error)
+            LOGGER.warning("copilot stream failed for session %s: %s", session_key, error)
             yield "data: {0}\n\n".format(json.dumps({"type": "error", "message": "连接中断，请重新发送"}, ensure_ascii=False))
 
     return StreamingResponse(
