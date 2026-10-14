@@ -381,3 +381,44 @@
 
 /* Evi profile remains in model context but is not shown as a standalone front-end strip. */
 .copilot-drawer{grid-template-rows:auto auto minmax(0,1fr) auto auto}
+
+/* Application pipeline */
+.applications-page{min-height:100vh;background:#f5f2eb;padding-bottom:72px}
+.applications-head{align-items:flex-end}
+.application-summary{display:flex;gap:12px}
+.application-summary span{min-width:116px;padding:14px 16px;border:1px solid #d9d4ca;background:#fff;display:flex;flex-direction:column;gap:3px;color:#69645b;font-size:12px}
+.application-summary b{font-family:Georgia,serif;font-size:26px;color:#191815}
+.application-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 14px;max-width:1320px;padding:0 24px}
+.application-kpis article{padding:18px 20px;display:grid;gap:6px}
+.application-kpis span,.application-kpis small{color:#777168;font-size:12px}
+.application-kpis b{font-family:Georgia,serif;font-size:34px;font-weight:500;color:#191815}
+.application-funnel{max-width:1272px;margin:0 auto 20px;padding:20px 24px;display:grid;grid-template-columns:190px 1fr;gap:24px;align-items:center}
+.application-funnel>div:first-child{display:grid;gap:5px}.application-funnel small{color:#8a6a38;letter-spacing:.08em}.application-funnel b{font-size:18px}
+.funnel-track{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:center}
+.funnel-track span{position:relative;isolation:isolate;padding:11px 12px;color:#fff;font-size:12px;white-space:nowrap}
+.funnel-track span:before{content:"";position:absolute;z-index:-1;inset:0 auto 0 0;width:var(--funnel-width);min-width:100%;background:#262d2a}
+.funnel-track span:nth-child(2):before{background:#516058}.funnel-track span:nth-child(3):before{background:#8b7450}.funnel-track span:nth-child(4):before{background:#a25b43}
+.application-board{display:grid;grid-template-columns:repeat(6,minmax(190px,1fr));gap:10px;max-width:1320px;margin:0 auto;padding:0 24px;overflow-x:auto;align-items:start}
+.application-column{min-height:360px;background:rgba(255,255,255,.48);border:1px solid #ded9cf;padding:12px}
+.application-column>header{display:flex;justify-content:space-between;align-items:center;padding:3px 2px 12px;border-bottom:2px solid #282d2a;margin-bottom:10px}
+.application-column>header b{font-size:13px}.application-column>header span{background:#e8e3d9;border-radius:999px;padding:2px 8px;font-size:11px}
+.status-preparing>header{border-color:#8b7450}.status-applied>header{border-color:#5c7482}.status-interviewing>header{border-color:#875f8f}.status-offered>header{border-color:#42715b}.status-rejected>header{border-color:#a55a4b}
+.application-column-list{display:grid;gap:8px}
+.application-card{width:100%;padding:14px;text-align:left;display:grid;gap:8px;cursor:pointer;transition:transform .18s ease,border-color .18s ease;background:#fff;color:inherit}
+.application-card:hover,.application-card.active{transform:translateY(-2px);border-color:#71644f}
+.application-card small{color:#817a70}.application-card>b{font-size:15px;line-height:1.35}.application-card p{margin:0;color:#5f5a52;font-size:12px;line-height:1.5;min-height:36px}
+.application-card div{display:flex;justify-content:space-between;gap:6px;color:#8a8277;font-size:10px}.application-card time{white-space:nowrap}
+.application-empty{max-width:1272px;margin:0 auto;min-height:280px;display:grid;place-items:center;align-content:center;gap:10px}.application-empty svg{color:#8b7450}
+.application-detail-backdrop{position:fixed;inset:0;background:rgba(24,23,20,.32);z-index:50;display:flex;justify-content:flex-end}
+.application-detail{width:min(520px,94vw);height:100%;border-radius:0;border-block:0;border-right:0;padding:26px;overflow-y:auto;background:#fbfaf6}
+.application-detail>header{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid #ddd7cc}
+.application-detail>header small{color:#81745e}.application-detail>header h3{margin:5px 0 0;font-family:Georgia,serif;font-size:25px}.application-detail>header button{border:0;background:none;cursor:pointer;padding:6px}
+.application-detail-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.application-detail-fields label{display:grid;gap:7px;color:#686158;font-size:12px}.application-detail-fields .wide{grid-column:1/-1}
+.application-detail-fields input,.application-detail-fields select,.application-activity input{border:1px solid #ccc5ba;background:#fff;padding:11px 12px;font:inherit;color:#272520;outline:none}.application-detail-fields input:focus,.application-detail-fields select:focus,.application-activity input:focus{border-color:#77694f}
+.application-report-link{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-block:1px solid #ddd7cc}.application-report-link div{display:grid;gap:3px}.application-report-link span{font-size:11px;color:#827b71}.application-report-link b{font-size:14px}
+.application-activity{margin-top:22px}.application-activity form{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0 18px}
+.activity-list{display:grid;gap:0}.activity-list article{position:relative;display:grid;grid-template-columns:18px 1fr;gap:8px;padding-bottom:18px}.activity-list article:before{content:"";position:absolute;left:5px;top:10px;bottom:0;border-left:1px solid #d1cbc0}.activity-list i{width:11px;height:11px;background:#6d765f;border-radius:50%;margin-top:4px;z-index:1}.activity-list div{display:grid;gap:4px}.activity-list b{font-size:13px;font-weight:500}.activity-list time{font-size:10px;color:#8e877d}.application-delete{width:100%;margin-top:8px}
+
+@media(max-width:900px){.application-kpis{grid-template-columns:repeat(2,1fr)}.application-funnel{grid-template-columns:1fr}.funnel-track{grid-template-columns:1fr 1fr}.application-board{grid-template-columns:repeat(6,210px)}.application-summary{display:none}}
+@media(max-width:560px){.application-kpis{grid-template-columns:1fr 1fr;padding:0 14px}.application-board{padding:0 14px}.application-funnel{margin-inline:14px}.application-detail-fields{grid-template-columns:1fr}.application-detail-fields .wide{grid-column:auto}.application-activity form{grid-template-columns:1fr}}

@@ -54,6 +54,15 @@ const REWRITE_HISTORY_KEY = 'eviden.rewrite.history.v1';
 const REWRITE_HISTORY_OWNER_KEY = 'eviden.rewrite.history.owner.v1';
 const COPILOT_MESSAGES_KEY_PREFIX = 'eviden.copilot.messages.v2';
 const COPILOT_MEMORY_KEY_PREFIX = 'eviden.copilot.memory.v1';
+const APPLICATIONS_KEY_PREFIX = 'eviden.applications.v1';
+const APPLICATION_STATUSES = [
+  { id: 'not_applied', label: '待投递' },
+  { id: 'preparing', label: '准备中' },
+  { id: 'applied', label: '已投递' },
+  { id: 'interviewing', label: '面试中' },
+  { id: 'offered', label: '已录用' },
+  { id: 'rejected', label: '未通过' },
+];
 
 function safeParse(value, fallback) {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -65,6 +74,23 @@ function defaultResumeCacheKey(userId) {
 
 function copilotStorageKey(prefix, userId) {
   return `${prefix}.${encodeURIComponent(String(userId || 'guest'))}`;
+}
+
+function applicationsStorageKey(userId) {
+  return `${APPLICATIONS_KEY_PREFIX}.${encodeURIComponent(String(userId || 'guest'))}`;
+}
+
+function getStoredApplications(userId) {
+  const stored = safeParse(localStorage.getItem(applicationsStorageKey(userId)), []);
+  return Array.isArray(stored) ? stored.filter(item => item?.id && item?.target) : [];
+}
+
+function persistApplications(userId, records) {
+  localStorage.setItem(applicationsStorageKey(userId), JSON.stringify(records.slice(0, 100)));
+}
+
+function applicationStatusLabel(status) {
+  return APPLICATION_STATUSES.find(item => item.id === status)?.label || '待投递';
 }
 
 function normalizeDefaultResume(value) {
@@ -173,14 +199,23 @@ function getStoredUser() {
 async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal,
+    });
+  } catch (cause) {
+    if (cause?.name === 'AbortError') throw cause;
+    const error = new Error('服务连接暂时波动，正在自动重试');
+    error.transient = true;
+    error.cause = cause;
+    throw error;
+  }
   if (!response.ok) {
-    let message = '请求失败，请稍后重试';
+    let message = '请求暂时没有完成，请稍后重试';
     try {
       const data = await response.json();
       message = typeof data.detail === 'string' ? data.detail : message;
@@ -189,6 +224,7 @@ async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
     }
     const error = new Error(message);
     error.status = response.status;
+    error.transient = response.status === 404 || response.status === 408 || response.status === 429 || response.status >= 500;
     throw error;
   }
   if (response.status === 204) return null;
@@ -375,51 +411,94 @@ async function requestModelJson(path, body, fallbackMessage) {
 
 const wait = ms => new Promise(resolve => window.setTimeout(resolve, ms));
 
+function createRequestId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function analysisApi(path, options, maxAttempts = 5) {
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await apiJson(path, options);
+    } catch (error) {
+      lastError = error;
+      if (!error.transient || error.status === 401 || error.status === 403 || attempt === maxAttempts - 1) throw error;
+      await wait(Math.min(1000 * (2 ** attempt), 8000));
+    }
+  }
+  throw lastError;
+}
+
 async function pollAnalysisJob(jobId, token) {
   let consecutiveErrors = 0;
   for (;;) {
     try {
-      const job = await apiJson(`/api/analysis-jobs/${encodeURIComponent(jobId)}`, { token });
+      const job = await analysisApi(`/api/analysis-jobs/${encodeURIComponent(jobId)}`, { token }, 3);
       consecutiveErrors = 0;
       if (job.status === 'completed' && job.result) return job.result;
       if (job.status === 'failed') {
-        const failure = new Error(job.error || '报告生成失败，请重新生成。');
+        const failure = new Error('报告生成暂时中断，正在自动重新生成');
         failure.jobFailed = true;
         throw failure;
       }
     } catch (error) {
-      if (error.status || error.jobFailed) throw error;
+      if (error.jobFailed || error.status === 401 || error.status === 403) throw error;
       consecutiveErrors += 1;
-      if (consecutiveErrors >= 10) throw new Error('暂时无法查询生成进度，任务仍会在后台继续。请稍后刷新页面查看。');
+      if (error.status === 404 && consecutiveErrors >= 3) {
+        const missing = new Error('正在重新连接后台任务');
+        missing.jobMissing = true;
+        throw missing;
+      }
+      if (consecutiveErrors % 10 === 0) console.warn('analysis progress check is retrying', error);
     }
-    await wait(2000);
+    await wait(Math.min(2000 + consecutiveErrors * 500, 10000));
   }
 }
 
-async function requestAnalysis(input, token) {
+async function requestAnalysis(input, token, pendingTask = null) {
+  const requestId = pendingTask?.requestId || createRequestId();
   const body = {
     resume: input.resume,
     jd: input.jd,
     target: input.target,
     company: input.company,
     business_unit: input.businessUnit,
+    client_request_id: requestId,
   };
-  const job = await apiJson('/api/analysis-jobs', { method: 'POST', token, body });
-  localStorage.setItem(PENDING_ANALYSIS_KEY, JSON.stringify({ jobId: job.job_id, input }));
-  try {
-    const result = await pollAnalysisJob(job.job_id, token);
-    localStorage.removeItem(PENDING_ANALYSIS_KEY);
-    return result;
-  } catch (error) {
-    if (error.status || !String(error.message || '').includes('后台继续')) localStorage.removeItem(PENDING_ANALYSIS_KEY);
-    throw error;
+  const pending = { requestId, jobId: pendingTask?.jobId || '', input };
+  localStorage.setItem(PENDING_ANALYSIS_KEY, JSON.stringify(pending));
+
+  for (let run = 0; run < 2; run += 1) {
+    const job = await analysisApi('/api/analysis-jobs', { method: 'POST', token, body }, 6);
+    pending.jobId = job.job_id;
+    localStorage.setItem(PENDING_ANALYSIS_KEY, JSON.stringify(pending));
+    try {
+      const result = await pollAnalysisJob(job.job_id, token);
+      localStorage.removeItem(PENDING_ANALYSIS_KEY);
+      return result;
+    } catch (error) {
+      if ((!error.jobFailed && !error.jobMissing) || run === 1) throw error;
+      await wait(1200);
+    }
   }
+  throw new Error('报告仍在后台生成，请稍后回到此页查看');
+}
+
+function friendlyAnalysisError(error) {
+  if (error?.status === 401 || error?.status === 403) return '登录状态已过期，请重新登录后继续生成';
+  if (error?.jobFailed) return '生成服务刚刚中断了一次，任务已保留，点击生成报告即可继续';
+  return '当前连接不稳定，任务已保留。网络恢复后重新进入此页会自动继续';
 }
 
 async function resumePendingAnalysis(token) {
   const pending = safeParse(localStorage.getItem(PENDING_ANALYSIS_KEY), null);
-  if (!pending?.jobId || !pending?.input) return null;
-  const result = await pollAnalysisJob(pending.jobId, token);
+  if (!pending?.input) return null;
+  const result = pending.jobId
+    ? await pollAnalysisJob(pending.jobId, token).catch(error => {
+      if (error.jobFailed || error.jobMissing || error.status === 404) return requestAnalysis(pending.input, token, pending);
+      throw error;
+    })
+    : await requestAnalysis(pending.input, token, pending);
   localStorage.removeItem(PENDING_ANALYSIS_KEY);
   return { result, input: pending.input };
 }
@@ -736,7 +815,7 @@ function AuthModal({ onClose, onSuccess }) {
   </div>;
 }
 
-function Landing({ onStart, onScreenJobs, onOptimizeResume, onOpenHistory, historyCount, user, latestReport, onViewLatest, onAuth, onLogout }) {
+function Landing({ onStart, onScreenJobs, onOptimizeResume, onOpenHistory, onOpenApplications, historyCount, applicationCount, user, latestReport, onViewLatest, onAuth, onLogout }) {
   const latestResult = latestReport?.result;
   const isRealReport = Boolean(user && latestReport && latestResult);
   const matchedEvidence = latestResult?.evidence?.find(item => item.resumeQuote && item.resumeQuote !== '无直接证据');
@@ -764,7 +843,7 @@ function Landing({ onStart, onScreenJobs, onOptimizeResume, onOpenHistory, histo
     <nav className="nav product-nav">
       <Brand />
       <div className="nav-right">
-        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onOptimizeResume}>简历优化</button><button onClick={onStart}>开始分析</button></div>
+        <div className="nav-links nav-actions-compact"><button onClick={onOpenApplications}>投递管理 {applicationCount ? `(${applicationCount})` : ''}</button><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onOptimizeResume}>简历优化</button><button onClick={onStart}>开始分析</button></div>
         <div className="account-entry">{user ? <button onClick={onLogout}>退出登录</button> : <button onClick={onAuth}>登录</button>}</div>
       </div>
     </nav>
@@ -847,7 +926,7 @@ function JobScreening({ token, user, onBack, onAnalyze, onStart, onSaveScreening
     const input = { resume, jd: job.jd, target: job.title, company: job.company, businessUnit: job.businessUnit, resumeFileName: cachedResume?.filename };
     setDeepLoading(item.jd_index); setError('');
     try { const report = await requestAnalysis(input, token); onAnalyze(report, input); }
-    catch (err) { setError(err.message || '完整报告生成失败，请稍后重试。'); }
+    catch (err) { setError(friendlyAnalysisError(err)); }
     finally { setDeepLoading(-1); }
   };
   return <section className="workspace screening-page">
@@ -949,7 +1028,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
         if (!cancelled && pending) onAnalyze(pending.result, pending.input);
       })
       .catch(err => {
-        if (!cancelled) setError(err.message || '暂时无法恢复后台生成任务，请稍后刷新页面。');
+        if (!cancelled) setError(friendlyAnalysisError(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -978,7 +1057,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
       const result = await requestAnalysis(input, token);
       onAnalyze(result, input);
     } catch (err) {
-      setError(err.message || '分析失败，请稍后重试。');
+      setError(friendlyAnalysisError(err));
     } finally {
       setLoading(false);
     }
@@ -1085,7 +1164,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
       <div className="loading-copy"><b>报告正在后台生成</b><p>你可以离开当前页面，完成后重新打开也能继续查看</p></div>
       <div className="loading-steps">{loadingSteps.map((step, index) => <span key={step} style={{ animationDelay: `${index * 0.45}s` }}>{step}</span>)}</div>
     </div>}
-    {error && <div className="error-banner editorial-card"><b>处理未完成</b><span>{error}</span></div>}
+    {error && <div className="error-banner editorial-card"><b>生成暂时中断</b><span>{error}</span></div>}
 
     <div className="input-grid">
       <div className="input-card editorial-card upload-card">
@@ -1251,10 +1330,10 @@ const reportNextStep = result => {
   return { title: '整理投递材料', detail: '核对简历与岗位要求后，开始准备投递' };
 };
 
-function ResultPage({ result, onBack, backLabel = '返回上一步', onHome, onOpenHistory, onCompare, showHistoryButton = true }) {
+function ResultPage({ result, onBack, backLabel = '返回上一步', onHome, onOpenHistory, onCompare, onAddApplication, applicationAdded = false, showHistoryButton = true }) {
   const nextStep = reportNextStep(result);
   return <section className="workspace result-page result-v2">
-    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>{backLabel}</button>{showHistoryButton && <button className="secondary" onClick={onOpenHistory}>历史报告</button>}<button className="secondary" onClick={onCompare}>多岗位对比</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>{backLabel}</button>{showHistoryButton && <button className="secondary" onClick={onOpenHistory}>历史报告</button>}<button className="secondary" onClick={onCompare}>多岗位对比</button><button className="primary" onClick={onAddApplication} disabled={applicationAdded}>{applicationAdded ? '已加入投递' : '加入投递计划'}</button><button className="secondary" onClick={onHome}>首页</button></div></nav>
 
     <div className="report-context-bar">
       <div><span>当前简历</span><b>{result.resumeName}</b></div>
@@ -1351,6 +1430,67 @@ function ComparePage({ records, onBack, onView }) {
         <button className="secondary full" onClick={() => onView(record)}>查看完整报告</button>
       </article>)}
     </div>}
+  </section>;
+}
+
+function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
+  const [selectedId, setSelectedId] = useState(applications[0]?.id || '');
+  const [activity, setActivity] = useState('');
+  const selected = applications.find(item => item.id === selectedId) || null;
+  const update = (id, patch, activityText = '') => {
+    onChange(applications.map(item => item.id !== id ? item : {
+      ...item,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+      activities: activityText ? [{ id: `activity-${Date.now()}`, time: new Date().toISOString(), type: 'update', content: activityText }, ...(item.activities || [])] : item.activities,
+    }));
+  };
+  const setStatus = (record, status) => update(record.id, { status }, `状态更新为「${applicationStatusLabel(status)}」`);
+  const addActivity = event => {
+    event.preventDefault();
+    if (!selected || !activity.trim()) return;
+    update(selected.id, {}, activity.trim());
+    setActivity('');
+  };
+  const remove = record => {
+    onChange(applications.filter(item => item.id !== record.id));
+    setSelectedId('');
+  };
+  const started = applications.filter(item => !['not_applied', 'preparing'].includes(item.status)).length;
+  const interviews = applications.filter(item => ['interviewing', 'offered'].includes(item.status)).length;
+  const offers = applications.filter(item => item.status === 'offered').length;
+  const dueSoon = applications.filter(item => item.dueDate && new Date(item.dueDate).getTime() >= Date.now() && new Date(item.dueDate).getTime() - Date.now() < 7 * 86400000).length;
+
+  return <section className="workspace applications-page">
+    <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button></div></nav>
+    <div className="page-head applications-head"><div><small>APPLICATION PIPELINE / 投递管理</small><h2>投递工作台</h2><p>集中管理岗位进度、下一步行动与每次跟进</p></div><div className="application-summary"><span><b>{applications.length}</b>全部岗位</span><span><b>{dueSoon}</b>7 天内待办</span></div></div>
+
+    <div className="application-kpis">
+      <article className="editorial-card"><span>已加入</span><b>{applications.length}</b><small>岗位总数</small></article>
+      <article className="editorial-card"><span>已投递</span><b>{started}</b><small>{applications.length ? `${Math.round(started / applications.length * 100)}% 投递率` : '等待加入岗位'}</small></article>
+      <article className="editorial-card"><span>进入面试</span><b>{interviews}</b><small>{started ? `${Math.round(interviews / started * 100)}% 面试转化` : '尚无转化'}</small></article>
+      <article className="editorial-card"><span>获得录用</span><b>{offers}</b><small>{interviews ? `${Math.round(offers / interviews * 100)}% 录用转化` : '继续推进'}</small></article>
+    </div>
+
+    <div className="application-funnel editorial-card">
+      <div><small>CONVERSION FUNNEL</small><b>投递转化漏斗</b></div>
+      <div className="funnel-track"><span style={{ '--funnel-width': '100%' }}>加入计划 {applications.length}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(24, started / applications.length * 100) : 24}%` }}>已投递 {started}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(18, interviews / applications.length * 100) : 18}%` }}>面试 {interviews}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(12, offers / applications.length * 100) : 12}%` }}>录用 {offers}</span></div>
+    </div>
+
+    {applications.length === 0 ? <div className="empty-state editorial-card application-empty"><BriefcaseBusiness size={30}/><b>还没有加入投递计划的岗位</b><p>打开一份岗位报告，点击「加入投递计划」即可开始管理</p></div> : <div className="application-board">
+      {APPLICATION_STATUSES.map(status => {
+        const records = applications.filter(item => item.status === status.id);
+        return <section className={`application-column status-${status.id}`} key={status.id}><header><b>{status.label}</b><span>{records.length}</span></header><div className="application-column-list">{records.map(record => <button className={`application-card editorial-card ${selectedId === record.id ? 'active' : ''}`} key={record.id} onClick={() => setSelectedId(record.id)}><small>{record.company || '公司待补充'}</small><b>{record.target}</b><p>{record.nextAction || '设置下一步行动'}</p><div><span>{record.score != null ? `匹配 ${record.score}` : '来自岗位报告'}</span><time>{record.dueDate || '暂无截止日'}</time></div></button>)}</div></section>;
+      })}
+    </div>}
+
+    {selected && <div className="application-detail-backdrop" role="presentation" onClick={() => setSelectedId('')}><aside className="application-detail editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
+      <header><div><small>{selected.company || '公司待补充'} · {applicationStatusLabel(selected.status)}</small><h3>{selected.target}</h3></div><button onClick={() => setSelectedId('')} aria-label="关闭"><X size={20}/></button></header>
+      <div className="application-detail-fields"><label>当前状态<select value={selected.status} onChange={event => setStatus(selected, event.target.value)}>{APPLICATION_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label><label>跟进截止日<input type="date" value={selected.dueDate || ''} onChange={event => update(selected.id, { dueDate: event.target.value })}/></label><label className="wide">下一步行动<input value={selected.nextAction || ''} onChange={event => update(selected.id, { nextAction: event.target.value })} placeholder="例如：周五前完成定向简历并投递"/></label></div>
+      <div className="application-report-link"><div><span>岗位报告</span><b>{selected.score != null ? `匹配评分 ${selected.score}` : '已关联报告'}</b></div>{selected.reportId && <button className="secondary" onClick={() => onViewReport(selected.reportId)}>查看报告</button>}</div>
+      <div className="application-activity"><div className="panel-head"><b>跟进记录</b><span>{(selected.activities || []).length} 条</span></div><form onSubmit={addActivity}><input value={activity} onChange={event => setActivity(event.target.value)} placeholder="记录沟通、投递、面试或结果"/><button className="primary" disabled={!activity.trim()}>添加记录</button></form><div className="activity-list">{(selected.activities || []).map(item => <article key={item.id}><i></i><div><b>{item.content}</b><time>{formatDate(item.time)}</time></div></article>)}</div></div>
+      <button className="secondary danger application-delete" onClick={() => remove(selected)}>移出投递计划</button>
+    </aside></div>}
   </section>;
 }
 
@@ -1465,6 +1605,7 @@ function App() {
   const [history, setHistory] = useState(getStoredHistory);
   const [screeningHistory, setScreeningHistory] = useState(() => getScreeningHistoryForUser(getStoredUser()?.id));
   const [rewriteHistory, setRewriteHistory] = useState(() => getRewriteHistoryForUser(getStoredUser()?.id));
+  const [applications, setApplications] = useState(() => getStoredApplications(getStoredUser()?.id));
   const [selectedScreening, setSelectedScreening] = useState(null);
   const [selectedRewrite, setSelectedRewrite] = useState(null);
   const [rewriteContext, setRewriteContext] = useState(null);
@@ -1479,6 +1620,7 @@ function App() {
       setHistory([]);
       setScreeningHistory([]);
       setRewriteHistory([]);
+      setApplications([]);
       return;
     }
     let cancelled = false;
@@ -1491,9 +1633,11 @@ function App() {
         const localRecords = getHistoryForUser(userInfo.id);
         const localScreenings = getScreeningHistoryForUser(userInfo.id);
         const localRewrites = getRewriteHistoryForUser(userInfo.id);
+        const localApplications = getStoredApplications(userInfo.id);
         setHistory(localRecords);
         setScreeningHistory(localScreenings);
         setRewriteHistory(localRewrites);
+        setApplications(localApplications);
         persistHistory(localRecords, userInfo.id);
         persistScreeningHistory(localScreenings, userInfo.id);
         persistRewriteHistory(localRewrites, userInfo.id);
@@ -1553,6 +1697,7 @@ function App() {
     const localRecords = getHistoryForUser(auth.user.id);
     const localScreenings = getScreeningHistoryForUser(auth.user.id);
     const localRewrites = getRewriteHistoryForUser(auth.user.id);
+    const localApplications = getStoredApplications(auth.user.id);
     persistHistory(localRecords, auth.user.id);
     persistScreeningHistory(localScreenings, auth.user.id);
     persistRewriteHistory(localRewrites, auth.user.id);
@@ -1561,6 +1706,7 @@ function App() {
     setHistory(localRecords);
     setScreeningHistory(localScreenings);
     setRewriteHistory(localRewrites);
+    setApplications(localApplications);
     setShowAuth(false);
     const nextStep = pendingStep;
     if (nextStep) {
@@ -1595,6 +1741,7 @@ function App() {
     setHistory([]);
     setScreeningHistory([]);
     setRewriteHistory([]);
+    setApplications([]);
     setSelectedScreening(null);
     setSelectedRewrite(null);
     setCompareRecords([]);
@@ -1683,13 +1830,52 @@ function App() {
     setStep('compare');
   };
 
+  const updateApplications = records => {
+    setApplications(records);
+    persistApplications(user?.id, records);
+  };
+
+  const reportForResult = result ? history.find(record => record.result === result || (record.target === (result.target || result.jdName) && record.result?.score === result.score) || record.result?.jdName === result.jdName) : null;
+  const currentApplication = reportForResult ? applications.find(item => item.reportId === reportForResult.id) : null;
+
+  const addCurrentReportToApplications = () => {
+    if (!reportForResult || currentApplication) {
+      setStep('applications');
+      return;
+    }
+    const now = new Date().toISOString();
+    const record = {
+      id: `application-${Date.now()}`,
+      reportId: reportForResult.id,
+      rewriteId: '',
+      target: reportForResult.target || result?.target || result?.jdName || '目标岗位',
+      company: reportForResult.company || '',
+      businessUnit: reportForResult.businessUnit || '',
+      status: 'not_applied',
+      score: reportForResult.result?.score,
+      nextAction: reportNextStep(reportForResult.result).title,
+      dueDate: '',
+      createdAt: now,
+      updatedAt: now,
+      activities: [{ id: `activity-${Date.now()}`, time: now, type: 'created', content: '从岗位报告加入投递计划' }],
+    };
+    updateApplications([record, ...applications]);
+    setPreviousStep('result');
+    setStep('applications');
+  };
+
+  const viewApplicationReport = reportId => {
+    const record = history.find(item => item.id === reportId);
+    if (record) viewRecord(record);
+  };
+
   const backFromCurrent = () => setStep(previousStep || 'landing');
   const closeAuth = () => {
     setShowAuth(false);
     setPendingStep('');
   };
-  const copilotPage = ['landing', 'screening', 'rewrite', 'input', 'history', 'compare'].includes(step) ? step : 'result';
-  const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : result?.jdName || result?.target || '当前分析报告';
+  const copilotPage = ['landing', 'screening', 'rewrite', 'input', 'history', 'compare', 'applications'].includes(step) ? step : 'result';
+  const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : step === 'applications' ? '投递管理' : result?.jdName || result?.target || '当前分析报告';
   const capabilityProfile = buildCapabilityProfile(history, screeningHistory, rewriteHistory);
   const pageCopilotData = step === 'landing'
     ? { latest_report: compactReportForCopilot(history[0]), recent_targets: capabilityProfile.target_roles.slice(0, 4) }
@@ -1701,9 +1887,11 @@ function App() {
           ? { default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)), recent_reports: history.slice(0, 3).map(compactReportForCopilot) }
           : step === 'history'
             ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4).map(compactScreeningForCopilot), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
-            : step === 'compare'
-              ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
-              : { report: compactReportForCopilot(result) };
+            : step === 'applications'
+              ? { applications: applications.slice(0, 20).map(item => ({ target: item.target, company: item.company, status: applicationStatusLabel(item.status), next_action: item.nextAction, due_date: item.dueDate, updated_at: item.updatedAt, activities: (item.activities || []).slice(0, 4) })) }
+              : step === 'compare'
+                ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
+                : { report: compactReportForCopilot(result) };
   const copilotData = { ...pageCopilotData, capability_profile: capabilityProfile };
   const handleCopilotNavigate = target => {
     if (target === 'result') {
@@ -1723,13 +1911,14 @@ function App() {
   };
   const withAuth = page => <>{page}<EvidenCopilot key={user?.id || 'guest'} token={token} userId={user?.id} page={copilotPage} contextLabel={copilotContext} context={copilotData} onNavigate={handleCopilotNavigate} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
-  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
+  if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} onOpenApplications={() => requireLogin('applications')} historyCount={isLoggedIn ? history.length : 0} applicationCount={isLoggedIn ? applications.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
   if (step === 'rewrite') return withAuth(<RewritePage key={selectedRewrite?.id || `${rewriteContext?.target || 'default'}-${user?.id || 'guest'}`} token={token} user={user} initialContext={rewriteContext} initialRecord={selectedRewrite} onSaveRewrite={saveRewriteRecord} onBack={backFromCurrent} onManageResume={() => setStep('input')} />);
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setSelectedRewrite(null); setRewriteContext(context); go('rewrite'); }} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} rewriteRecords={rewriteHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onViewRewrite={viewRewriteRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onDeleteRewrite={deleteRewriteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
-  return withAuth(<ResultPage result={result} onBack={backFromCurrent} backLabel={previousStep === 'history' ? '返回历史报告' : previousStep === 'compare' ? '返回岗位对比' : '返回上一步'} showHistoryButton={previousStep !== 'history'} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} />);
+  if (step === 'applications') return withAuth(<ApplicationsPage applications={applications} onChange={updateApplications} onBack={() => setStep('landing')} onViewReport={viewApplicationReport} />);
+  return withAuth(<ResultPage result={result} onBack={backFromCurrent} backLabel={previousStep === 'history' ? '返回历史报告' : previousStep === 'compare' ? '返回岗位对比' : previousStep === 'applications' ? '返回投递管理' : '返回上一步'} showHistoryButton={previousStep !== 'history'} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} onAddApplication={addCurrentReportToApplications} applicationAdded={Boolean(currentApplication)} />);
 }
 
 createRoot(document.getElementById('root')).render(<App />);

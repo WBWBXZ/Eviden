@@ -70,8 +70,9 @@ class AnalyzeRequest(BaseModel):
     target: str = Field(..., min_length=2, max_length=120)
     company: Optional[str] = Field("", max_length=120)
     business_unit: Optional[str] = Field("", max_length=120)
+    client_request_id: Optional[str] = Field("", max_length=64)
 
-    @validator("resume", "jd", "target", "company", "business_unit", pre=True, always=True)
+    @validator("resume", "jd", "target", "company", "business_unit", "client_request_id", pre=True, always=True)
     def strip_text(cls, value: Optional[str]) -> str:
         return str(value or "").strip()
 
@@ -1536,7 +1537,7 @@ def parse_copilot_output(raw_text: str, context_json: str) -> Dict[str, Any]:
         if len(evidence) >= 3:
             break
 
-    allowed_targets = {"landing", "input", "result", "screening", "rewrite", "history", "compare"}
+    allowed_targets = {"landing", "input", "result", "screening", "rewrite", "history", "compare", "applications"}
     actions = []
     for item in parsed.get("actions") or []:
         if not isinstance(item, dict):
@@ -1684,66 +1685,99 @@ async def parse_resume_json_handler(request: ResumeParseJsonRequest):
     return await parse_resume_content(request.filename, content)
 
 
-async def process_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
+async def process_analysis_job(job_id: str, request: AnalyzeRequest, user_id: int) -> None:
     now = int(time.time())
-    with _ANALYSIS_JOBS_LOCK:
-        _ANALYSIS_JOBS[job_id].update(status="processing", updated_at=now)
+    execute_sql(
+        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+        ("processing", now, job_id, user_id),
+    )
     try:
         payload = await request_analysis(request)
         result = normalize_result(payload, request)
         now = int(time.time())
-        with _ANALYSIS_JOBS_LOCK:
-            _ANALYSIS_JOBS[job_id].update(status="completed", result=result.dict(), error="", updated_at=now)
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            ("completed", json.dumps(result.dict(), ensure_ascii=False), "", now, job_id, user_id),
+        )
     except Exception as error:
         LOGGER.exception("analysis job failed: %s", job_id)
-        detail = getattr(error, "detail", "") or "报告生成失败，请重新生成。"
+        detail = getattr(error, "detail", "") or "报告生成暂时中断，请再次生成。"
         now = int(time.time())
-        with _ANALYSIS_JOBS_LOCK:
-            _ANALYSIS_JOBS[job_id].update(status="failed", error=str(detail)[:500], updated_at=now)
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            ("failed", str(detail)[:500], now, job_id, user_id),
+        )
 
 
-def start_analysis_job(job_id: str, request: AnalyzeRequest) -> None:
-    asyncio.run(process_analysis_job(job_id, request))
+def start_analysis_job(job_id: str, request: AnalyzeRequest, user_id: int) -> None:
+    asyncio.run(process_analysis_job(job_id, request, user_id))
 
 
-def analysis_job_response(job_id: str, job: Dict[str, Any]) -> AnalysisJobStatus:
-    result = job.get("result")
+def analysis_job_response(job_id: str, row: Dict[str, Any]) -> AnalysisJobStatus:
+    result_json = str(row["result_json"] or "")
+    result = json.loads(result_json) if result_json else None
     return AnalysisJobStatus(
         job_id=job_id,
-        status=str(job["status"]),
+        status=str(row["status"]),
         result=AnalysisResult.parse_obj(result) if result else None,
-        error=str(job.get("error") or ""),
-        created_at=int(job["created_at"]),
-        updated_at=int(job["updated_at"]),
+        error=str(row["error"] or ""),
+        created_at=int(row["created_at"]),
+        updated_at=int(row["updated_at"]),
     )
 
 
 @app.post("/api/analysis-jobs", response_model=AnalysisJobCreated)
-async def create_analysis_job_handler(request: AnalyzeRequest):
-    job_id = "analysis-{0}".format(uuid.uuid4().hex)
+async def create_analysis_job_handler(request: AnalyzeRequest, user: UserInfo = Depends(current_user)):
+    request_key = re.sub(r"[^a-zA-Z0-9_-]", "", request.client_request_id or "")[:64]
+    job_id = "analysis-{0}-{1}".format(user.id, request_key or uuid.uuid4().hex)
+    existing = fetch_one(
+        "SELECT status FROM analysis_jobs WHERE id = ? AND user_id = ?",
+        (job_id, user.id),
+    )
+    if existing is not None and str(existing["status"]) != "failed":
+        return AnalysisJobCreated(job_id=job_id, status=str(existing["status"]))
+
     now = int(time.time())
-    with _ANALYSIS_JOBS_LOCK:
-        expired_before = now - 60 * 60
-        for old_job_id in [key for key, value in _ANALYSIS_JOBS.items() if value["updated_at"] < expired_before]:
-            _ANALYSIS_JOBS.pop(old_job_id, None)
-        _ANALYSIS_JOBS[job_id] = {
-            "status": "queued",
-            "result": None,
-            "error": "",
-            "created_at": now,
-            "updated_at": now,
-        }
-    threading.Thread(target=start_analysis_job, args=(job_id, request), daemon=True).start()
+    request_json = json.dumps(request.dict(), ensure_ascii=False)
+    if existing is None:
+        execute_sql(
+            """
+            INSERT INTO analysis_jobs(id, user_id, status, request_json, result_json, error, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (job_id, user.id, "queued", request_json, None, "", now, now),
+        )
+    else:
+        execute_sql(
+            "UPDATE analysis_jobs SET status = ?, request_json = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            ("queued", request_json, None, "", now, job_id, user.id),
+        )
+    threading.Thread(target=start_analysis_job, args=(job_id, request, user.id), daemon=True).start()
     return AnalysisJobCreated(job_id=job_id, status="queued")
 
 
 @app.get("/api/analysis-jobs/{job_id}", response_model=AnalysisJobStatus)
-async def get_analysis_job_handler(job_id: str):
-    with _ANALYSIS_JOBS_LOCK:
-        job = dict(_ANALYSIS_JOBS.get(job_id) or {})
-    if not job:
+async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current_user)):
+    row = fetch_one(
+        """
+        SELECT status, request_json, result_json, error, created_at, updated_at
+        FROM analysis_jobs
+        WHERE id = ? AND user_id = ?
+        """,
+        (job_id, user.id),
+    )
+    if row is None or not job_id.startswith("analysis-"):
         raise HTTPException(status_code=404, detail="生成任务不存在或已失效。")
-    return analysis_job_response(job_id, job)
+
+    status = str(row["status"])
+    updated_at = int(row["updated_at"])
+    if status == "queued" or (status == "processing" and int(time.time()) - updated_at > 180):
+        try:
+            request = AnalyzeRequest.parse_obj(json.loads(str(row["request_json"])))
+            threading.Thread(target=start_analysis_job, args=(job_id, request, user.id), daemon=True).start()
+        except Exception:
+            LOGGER.exception("failed to resume analysis job: %s", job_id)
+    return analysis_job_response(job_id, row)
 
 
 async def process_rewrite_job(job_id: str, request: ResumeRewriteRequest, user_id: int) -> None:
