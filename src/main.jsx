@@ -9,6 +9,7 @@ import {
   Route,
   Send,
   Square,
+  Trash2,
   UploadCloud,
   X,
 } from 'lucide-react';
@@ -51,6 +52,8 @@ const SCREENING_HISTORY_KEY = 'eviden.screening.history.v1';
 const SCREENING_HISTORY_OWNER_KEY = 'eviden.screening.history.owner.v1';
 const REWRITE_HISTORY_KEY = 'eviden.rewrite.history.v1';
 const REWRITE_HISTORY_OWNER_KEY = 'eviden.rewrite.history.owner.v1';
+const COPILOT_MESSAGES_KEY_PREFIX = 'eviden.copilot.messages.v2';
+const COPILOT_MEMORY_KEY_PREFIX = 'eviden.copilot.memory.v1';
 
 function safeParse(value, fallback) {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -58,6 +61,10 @@ function safeParse(value, fallback) {
 
 function defaultResumeCacheKey(userId) {
   return `${DEFAULT_RESUME_KEY_PREFIX}.${encodeURIComponent(String(userId))}`;
+}
+
+function copilotStorageKey(prefix, userId) {
+  return `${prefix}.${encodeURIComponent(String(userId || 'guest'))}`;
 }
 
 function normalizeDefaultResume(value) {
@@ -519,12 +526,13 @@ async function streamCopilotReply({ token, message, messages, page, contextLabel
     const data = await response.json();
     if (!data.content) throw new Error('Evi 暂时没有生成有效回答');
     onDelta(data.content);
-    return;
+    return data;
   }
   if (!response.body) throw new Error('当前浏览器不支持流式回答');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let content = '';
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -535,10 +543,14 @@ async function streamCopilotReply({ token, message, messages, page, contextLabel
       const line = block.split('\n').find(item => item.startsWith('data:'));
       if (!line) continue;
       const event = JSON.parse(line.slice(5).trim());
-      if (event.type === 'delta' && event.content) onDelta(event.content);
+      if (event.type === 'delta' && event.content) {
+        content += event.content;
+        onDelta(event.content);
+      }
       if (event.type === 'error') throw new Error(event.message || 'Evi 暂时无法回答');
     }
   }
+  return { content, evidence: [], actions: [], memory: {} };
 }
 
 function Brand() {
@@ -559,18 +571,58 @@ function cleanCopilotText(text) {
     .replace(/`([^`]+)`/g, '$1');
 }
 
-function EvidenCopilot({ token, page, contextLabel, context }) {
+function normalizeCopilotMemory(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const normalize = key => Array.from(new Set((Array.isArray(source[key]) ? source[key] : []).map(item => String(item || '').trim()).filter(Boolean))).slice(0, 12);
+  return { goals: normalize('goals'), preferences: normalize('preferences'), facts: normalize('facts') };
+}
+
+function mergeCopilotMemory(current, incoming) {
+  const left = normalizeCopilotMemory(current);
+  const right = normalizeCopilotMemory(incoming);
+  return {
+    goals: Array.from(new Set([...left.goals, ...right.goals])).slice(-12),
+    preferences: Array.from(new Set([...left.preferences, ...right.preferences])).slice(-12),
+    facts: Array.from(new Set([...left.facts, ...right.facts])).slice(-12),
+  };
+}
+
+function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate }) {
+  const messagesKey = copilotStorageKey(COPILOT_MESSAGES_KEY_PREFIX, userId);
+  const memoryKey = copilotStorageKey(COPILOT_MEMORY_KEY_PREFIX, userId);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => safeParse(localStorage.getItem(messagesKey), []));
+  const [memory, setMemory] = useState(() => normalizeCopilotMemory(safeParse(localStorage.getItem(memoryKey), {})));
   const [streaming, setStreaming] = useState(false);
   const controllerRef = useRef(null);
   const messagesEndRef = useRef(null);
-  const quickQuestions = page === 'rewrite' ? ['哪条建议最值得采用', '这次改写有没有夸大', '下一步怎么完善'] : page === 'result' ? ['为什么建议我投递', '我最大的缺口是什么', '下一步应该做什么'] : ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
+  const quickQuestions = page === 'rewrite' ? ['哪条建议最值得采用', '这次改写有没有夸大', '下一步怎么完善'] : page === 'result' ? ['为什么建议我投递', '我最大的缺口是什么', '下一步应该做什么'] : page === 'screening' || page === 'compare' ? ['哪个岗位更值得投', '对比我的主要缺口', '给我投递优先级'] : ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
+  const memoryCount = memory.goals.length + memory.preferences.length + memory.facts.length;
+  const profile = context?.capability_profile;
+
+  useEffect(() => {
+    localStorage.setItem(messagesKey, JSON.stringify(messages.slice(-40)));
+  }, [messages, messagesKey]);
+
+  useEffect(() => {
+    localStorage.setItem(memoryKey, JSON.stringify(memory));
+  }, [memory, memoryKey]);
 
   useEffect(() => {
     if (open) messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, [messages, open]);
+
+  const clearConversation = () => {
+    controllerRef.current?.abort();
+    setMessages([]);
+    localStorage.removeItem(messagesKey);
+  };
+
+  const clearMemory = () => {
+    setMemory({ goals: [], preferences: [], facts: [] });
+    localStorage.removeItem(memoryKey);
+  };
 
   const sendMessage = async value => {
     const text = String(value || input).trim();
@@ -579,7 +631,7 @@ function EvidenCopilot({ token, page, contextLabel, context }) {
       setMessages(current => [...current, { id: `assistant-${Date.now()}`, role: 'assistant', text: '登录后就可以和我连续对话' }]);
       return;
     }
-    const priorMessages = messages.filter(message => message.text && !message.error).map(message => ({ role: message.role, content: message.text }));
+    const priorMessages = messages.filter(message => message.text && !message.error).slice(-12).map(message => ({ role: message.role, content: message.text }));
     const assistantId = `assistant-${Date.now()}`;
     setMessages(current => [...current, { id: `user-${Date.now()}`, role: 'user', text }, { id: assistantId, role: 'assistant', text: '' }]);
     setInput('');
@@ -587,16 +639,23 @@ function EvidenCopilot({ token, page, contextLabel, context }) {
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      await streamCopilotReply({
+      const responseData = await streamCopilotReply({
         token,
         message: text,
         messages: priorMessages,
         page,
         contextLabel,
-        context,
+        context: { ...context, long_term_memory: memory },
         signal: controller.signal,
         onDelta: delta => setMessages(current => current.map(message => message.id === assistantId ? { ...message, text: `${message.text}${delta}` } : message)),
       });
+      setMessages(current => current.map(message => message.id === assistantId ? {
+        ...message,
+        text: responseData.content || message.text,
+        evidence: Array.isArray(responseData.evidence) ? responseData.evidence : [],
+        actions: Array.isArray(responseData.actions) ? responseData.actions : [],
+      } : message));
+      if (responseData.memory) setMemory(current => mergeCopilotMemory(current, responseData.memory));
     } catch (error) {
       if (error.name === 'AbortError') {
         setMessages(current => current.map(message => message.id === assistantId && !message.text ? { ...message, text: '已停止生成' } : message));
@@ -609,23 +668,32 @@ function EvidenCopilot({ token, page, contextLabel, context }) {
     }
   };
 
+  const runAction = action => {
+    if (action.type === 'query') sendMessage(action.query || action.target);
+    else if (action.type === 'navigate' && onNavigate) onNavigate(action.target);
+  };
   const stopStreaming = () => controllerRef.current?.abort();
 
   return <>
-    {open && <aside className="copilot-drawer" aria-label="Evi AI 助手">
+    {open ? <aside className="copilot-drawer" aria-label="Evi AI 助手">
       <header className="copilot-head">
         <div className="copilot-identity"><CuteRobot compact /><div><b>Evi</b><span>{streaming ? '正在回答' : 'EVIDEN AI 助手'}</span></div></div>
-        <button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Evi"><X size={18} /></button>
+        <div className="copilot-head-actions"><button onClick={clearConversation} aria-label="清空对话" title="清空对话"><Trash2 size={16} /></button><button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Evi"><X size={18} /></button></div>
       </header>
       <div className="copilot-context"><small>正在查看</small><b>{contextLabel}</b></div>
+      {profile || memoryCount > 0 ? <div className="copilot-profile-strip"><div><small>能力档案</small><b>{profile?.headline || `已记住 ${memoryCount} 项长期信息`}</b></div>{memoryCount > 0 ? <button onClick={clearMemory}>清除记忆</button> : null}</div> : null}
       <div className="copilot-messages">
         <div className="copilot-message assistant">
           <CuteRobot compact />
           <div className="copilot-bubble"><p>你好，我是 Evi。你可以直接问我当前页面、岗位或简历相关的问题</p></div>
         </div>
         {messages.map(message => <div className={`copilot-message ${message.role} ${message.error ? 'error' : ''}`} key={message.id}>
-          {message.role === 'assistant' && <CuteRobot compact />}
-          <div className="copilot-bubble"><p>{message.text ? cleanCopilotText(message.text) : <span className="copilot-thinking">正在思考</span>}</p></div>
+          {message.role === 'assistant' ? <CuteRobot compact /> : null}
+          <div className="copilot-message-content">
+            <div className="copilot-bubble"><p>{message.text ? cleanCopilotText(message.text) : <span className="copilot-thinking">正在思考</span>}</p></div>
+            {(message.evidence || []).map(item => <article className="copilot-card evidence" key={`${message.id}-evidence-${item.title}-${item.content}`}><small>回答依据 · {item.source || '报告'}</small><b>{item.title}</b><p>{item.content}</p></article>)}
+            {message.actions?.length > 0 ? <div className="copilot-card action"><small>建议行动</small><div>{message.actions.map(action => <button key={`${message.id}-action-${action.type}-${action.label}-${action.target || action.query}`} onClick={() => runAction(action)} disabled={streaming}>{action.label}<ArrowRight size={14} /></button>)}</div></div> : null}
+          </div>
         </div>)}
         <div ref={messagesEndRef}></div>
       </div>
@@ -634,7 +702,7 @@ function EvidenCopilot({ token, page, contextLabel, context }) {
         <textarea value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } }} placeholder="输入你的问题" rows="2" disabled={streaming} />
         {streaming ? <button type="button" onClick={stopStreaming} aria-label="停止生成"><Square size={15} fill="currentColor" /></button> : <button type="submit" disabled={!input.trim()} aria-label="发送"><Send size={17} /></button>}
       </form>
-    </aside>}
+    </aside> : null}
     <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Evi' : '打开 Evi'}>
       <CuteRobot />
     </button>
@@ -1355,6 +1423,41 @@ function compactResumeForCopilot(resume) {
   };
 }
 
+function compactScreeningForCopilot(record) {
+  if (!record) return null;
+  return {
+    id: record.id || '',
+    resume_name: record.resumeName || '',
+    jobs: (record.jobs || []).slice(0, 6).map(job => ({ id: job.id || '', title: job.title || job.name || '', company: job.company || '', jd_preview: String(job.jd || job.jdText || '').slice(0, 600) })),
+    results: (record.results || []).slice(0, 6).map(result => ({ target: result.target || result.title || '', score: result.score ?? null, action: result.action || '', summary: result.summary || '', gaps: (result.gaps || []).slice(0, 3) })),
+  };
+}
+
+function buildCapabilityProfile(history, screeningHistory, rewriteHistory) {
+  const reports = (history || []).slice(0, 8);
+  const targets = Array.from(new Set(reports.map(record => record.target || record.result?.target).filter(Boolean))).slice(0, 6);
+  const strengths = [];
+  const gaps = [];
+  const actions = [];
+  reports.forEach(record => {
+    const report = record.result || record;
+    (report.evidence || []).slice(0, 2).forEach(item => strengths.push(item.proof || item.resumeQuote || item.req));
+    (report.gaps || []).slice(0, 2).forEach(item => gaps.push(typeof item === 'string' ? item : item.title || item.gap || item.description));
+    (report.actions || []).slice(0, 2).forEach(item => actions.push(typeof item === 'string' ? item : item.title || item.action || item.description));
+  });
+  const unique = values => Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).slice(0, 8);
+  return {
+    headline: targets.length ? `聚焦 ${targets[0]} · 已沉淀 ${reports.length} 份岗位分析` : '等待通过岗位分析建立能力档案',
+    target_roles: targets,
+    strengths: unique(strengths),
+    recurring_gaps: unique(gaps),
+    recommended_actions: unique(actions),
+    report_count: reports.length,
+    screening_count: (screeningHistory || []).length,
+    rewrite_count: (rewriteHistory || []).length,
+  };
+}
+
 function App() {
   const [step, setStep] = useState(() => localStorage.getItem(PENDING_ANALYSIS_KEY) ? 'input' : 'landing');
   const [previousStep, setPreviousStep] = useState('landing');
@@ -1589,20 +1692,38 @@ function App() {
   };
   const copilotPage = ['landing', 'screening', 'rewrite', 'input', 'history', 'compare'].includes(step) ? step : 'result';
   const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : result?.jdName || result?.target || '当前分析报告';
-  const copilotData = step === 'landing'
-    ? { latest_report: compactReportForCopilot(history[0]) }
+  const capabilityProfile = buildCapabilityProfile(history, screeningHistory, rewriteHistory);
+  const pageCopilotData = step === 'landing'
+    ? { latest_report: compactReportForCopilot(history[0]), recent_targets: capabilityProfile.target_roles.slice(0, 4) }
     : step === 'screening'
-      ? { current_screening: selectedScreening, recent_screenings: screeningHistory.slice(0, 3) }
+      ? { current_screening: compactScreeningForCopilot(selectedScreening || screeningHistory[0]), recent_screenings: screeningHistory.slice(0, 3).map(compactScreeningForCopilot) }
       : step === 'rewrite'
-        ? { current_rewrite: compactRewriteForCopilot(selectedRewrite || rewriteContext), default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)) }
+        ? { current_rewrite: compactRewriteForCopilot(selectedRewrite || rewriteContext), recent_rewrites: rewriteHistory.slice(0, 3).map(compactRewriteForCopilot), default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)) }
         : step === 'input'
-          ? { default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)) }
+          ? { default_resume: compactResumeForCopilot(getCachedDefaultResume(user?.id)), recent_reports: history.slice(0, 3).map(compactReportForCopilot) }
           : step === 'history'
-            ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
+            ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4).map(compactScreeningForCopilot), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
             : step === 'compare'
               ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
               : { report: compactReportForCopilot(result) };
-  const withAuth = page => <>{page}<EvidenCopilot token={token} page={copilotPage} contextLabel={copilotContext} context={copilotData} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
+  const copilotData = { ...pageCopilotData, capability_profile: capabilityProfile };
+  const handleCopilotNavigate = target => {
+    if (target === 'result') {
+      if (result) go('result');
+      else if (history[0]) viewRecord(history[0]);
+      return;
+    }
+    if (target === 'compare') {
+      openCompare(history);
+      return;
+    }
+    if (target === 'rewrite') {
+      setSelectedRewrite(null);
+      setRewriteContext(result ? { target: result.target || result.jdName || '', analysis: result } : null);
+    }
+    go(target || 'landing');
+  };
+  const withAuth = page => <>{page}<EvidenCopilot key={user?.id || 'guest'} token={token} userId={user?.id} page={copilotPage} contextLabel={copilotContext} context={copilotData} onNavigate={handleCopilotNavigate} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
