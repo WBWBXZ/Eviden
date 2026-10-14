@@ -552,7 +552,6 @@ function EvidenCopilot({ contextLabel, onOpenRewrite }) {
     </aside>}
     <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Evi' : '打开 Evi'}>
       <CuteRobot />
-      {!open && <span className="copilot-launcher-label"><b>Evi</b><small>有问题就问我</small></span>}
     </button>
   </>;
 }
