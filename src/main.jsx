@@ -7,7 +7,9 @@ import {
   ChevronRight,
   FileText,
   Route,
+  Send,
   UploadCloud,
+  X,
 } from 'lucide-react';
 import './styles.css';
 
@@ -496,6 +498,63 @@ async function requestResumeRewrite({ resume, target, jd, company, businessUnit,
 
 function Brand() {
   return <div className="brand"><span className="brand-mark">E</span><div><b>Eviden</b><small>证据链求职决策工具</small></div></div>;
+}
+
+function CuteRobot({ compact = false }) {
+  return <span className={`copilot-robot ${compact ? 'compact' : ''}`} aria-hidden="true">
+    <i className="robot-antenna"></i>
+    <span className="robot-head"><i className="robot-eye left"></i><i className="robot-eye right"></i><i className="robot-mouth"></i></span>
+  </span>;
+}
+
+function EvidenCopilot({ contextLabel, onOpenRewrite }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState([]);
+  const quickQuestions = ['我现在最该做什么', '解释当前页面', '我的优势是什么'];
+  const sendMessage = value => {
+    const text = String(value || input).trim();
+    if (!text) return;
+    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: '这是 Copilot 的交互设计预览。接入模型后，我会结合当前页面、简历和岗位要求回答，并给出对应依据和下一步', cards: true }]);
+    setInput('');
+  };
+
+  return <>
+    {open && <aside className="copilot-drawer" aria-label="Eviden Copilot">
+      <header className="copilot-head">
+        <div className="copilot-identity"><CuteRobot compact /><div><b>Eviden Copilot</b><span>设计预览</span></div></div>
+        <button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Copilot"><X size={18} /></button>
+      </header>
+      <div className="copilot-context"><small>正在查看</small><b>{contextLabel}</b></div>
+      <div className="copilot-messages">
+        <div className="copilot-message assistant">
+          <CuteRobot compact />
+          <div className="copilot-bubble"><p>你好，我是 Eviden Copilot。你可以直接问我当前页面、岗位或简历相关的问题</p></div>
+        </div>
+        <div className="copilot-message assistant">
+          <CuteRobot compact />
+          <div className="copilot-bubble">
+            <p>例如我可以先给出结论，再把回答依据和建议动作放进对话里</p>
+            <div className="copilot-card evidence"><small>简历证据</small><b>AI Agent 与 Prompt 工作流迭代</b><p>这段经历可以回应岗位对 AI 产品实践的要求</p></div>
+            <div className="copilot-card action"><small>建议行动</small><b>补充一条可验证的结果</b><p>说明你推动了什么变化，以及如何判断效果</p><button type="button" onClick={() => { setOpen(false); onOpenRewrite?.(); }}>去优化简历 <ChevronRight size={14} /></button></div>
+          </div>
+        </div>
+        {messages.map((message, index) => <div className={`copilot-message ${message.role}`} key={`${message.role}-${index}`}>
+          {message.role === 'assistant' && <CuteRobot compact />}
+          <div className="copilot-bubble"><p>{message.text}</p>{message.cards && <><div className="copilot-card evidence"><small>回答依据</small><b>当前页面上下文</b><p>正式版本会引用具体简历内容和岗位要求</p></div><div className="copilot-card action"><small>下一步</small><b>确认设计后接入真实模型</b></div></>}</div>
+        </div>)}
+      </div>
+      <div className="copilot-quick"><small>你可以这样问</small><div>{quickQuestions.map(question => <button key={question} onClick={() => sendMessage(question)}>{question}</button>)}</div></div>
+      <form className="copilot-composer" onSubmit={event => { event.preventDefault(); sendMessage(); }}>
+        <textarea value={input} onChange={event => setInput(event.target.value)} placeholder="输入你的问题" rows="2" />
+        <button type="submit" disabled={!input.trim()} aria-label="发送"><Send size={17} /></button>
+      </form>
+    </aside>}
+    <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Eviden Copilot' : '打开 Eviden Copilot'}>
+      <CuteRobot />
+      {!open && <span><b>问问 Eviden</b><small>Copilot</small></span>}
+    </button>
+  </>;
 }
 
 function AuthModal({ onClose, onSuccess }) {
@@ -1392,7 +1451,8 @@ function App() {
     setShowAuth(false);
     setPendingStep('');
   };
-  const withAuth = page => <>{page}{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
+  const copilotContext = step === 'landing' ? '求职工作台' : step === 'screening' ? '岗位筛选' : step === 'rewrite' ? `简历优化${rewriteContext?.target ? ` · ${rewriteContext.target}` : ''}` : step === 'input' ? '岗位分析' : step === 'history' ? '历史记录' : step === 'compare' ? '岗位对比' : result?.jdName || result?.target || '当前分析报告';
+  const withAuth = page => <>{page}<EvidenCopilot contextLabel={copilotContext} onOpenRewrite={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} historyCount={isLoggedIn ? history.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
