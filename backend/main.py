@@ -1364,8 +1364,12 @@ if os.path.isdir(ASSETS_DIR):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "https://a8223b45ac7d.aime-site.bytedance.net",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "OPTIONS", "DELETE"],
     allow_headers=["*"],
 )
