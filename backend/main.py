@@ -31,7 +31,7 @@ from docx import Document
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, validator
 from pypdf import PdfReader
@@ -1535,58 +1535,35 @@ async def copilot_chat_handler(request: CopilotChatRequest, session_key: str = D
         "model": copilot_model_name(),
         "messages": upstream_messages,
         "temperature": 0.25,
-        "max_tokens": 900,
+        "max_tokens": 700,
         "enable_thinking": False,
-        "stream": True,
+        "stream": False,
     }
     headers = {
         "Authorization": "Bearer {0}".format(api_key),
         "Content-Type": "application/json",
-        "Accept": "text/event-stream",
     }
-
-    async def event_stream():  # type: ignore[no-untyped-def]
-        try:
-            timeout = httpx.Timeout(90.0, connect=12.0)
-            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-                async with client.stream(
-                    "POST",
-                    "{0}/chat/completions".format(api_base_url().rstrip("/")),
-                    headers=headers,
-                    json=payload,
-                ) as response:
-                    if response.status_code >= 400:
-                        detail = (await response.aread()).decode("utf-8", errors="ignore")[:500]
-                        LOGGER.warning("copilot upstream error %s: %s", response.status_code, detail)
-                        yield "data: {0}\n\n".format(json.dumps({"type": "error", "message": "Evi 暂时无法回答，请稍后重试"}, ensure_ascii=False))
-                        return
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        raw = line[5:].strip()
-                        if not raw:
-                            continue
-                        if raw == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(raw)
-                            delta = str(chunk.get("choices", [{}])[0].get("delta", {}).get("content") or "")
-                        except (ValueError, KeyError, IndexError, TypeError):
-                            continue
-                        if delta:
-                            yield "data: {0}\n\n".format(json.dumps({"type": "delta", "content": delta}, ensure_ascii=False))
-            yield "data: {0}\n\n".format(json.dumps({"type": "done", "model": copilot_model_name()}, ensure_ascii=False))
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            LOGGER.warning("copilot stream failed for session %s: %s", session_key, error)
-            yield "data: {0}\n\n".format(json.dumps({"type": "error", "message": "连接中断，请重新发送"}, ensure_ascii=False))
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    try:
+        timeout = httpx.Timeout(60.0, connect=12.0)
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(
+                "{0}/chat/completions".format(api_base_url().rstrip("/")),
+                headers=headers,
+                json=payload,
+            )
+        if response.status_code >= 400:
+            LOGGER.warning("copilot upstream error %s: %s", response.status_code, response.text[:500])
+            raise HTTPException(status_code=502, detail="Evi 暂时无法回答，请稍后重试")
+        data = response.json()
+        content = str(data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+        if not content:
+            raise HTTPException(status_code=502, detail="Evi 暂时没有生成有效回答，请重新发送")
+        return {"content": content, "model": copilot_model_name()}
+    except HTTPException:
+        raise
+    except Exception as error:
+        LOGGER.warning("copilot request failed for session %s: %s", session_key, error)
+        raise HTTPException(status_code=502, detail="连接中断，请重新发送")
 
 
 async def parse_resume_content(filename: str, content: bytes) -> ResumeParseResponse:

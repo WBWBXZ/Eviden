@@ -514,6 +514,13 @@ async function streamCopilotReply({ token, message, messages, page, contextLabel
     }
     throw new Error(detail);
   }
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json();
+    if (!data.content) throw new Error('Evi 暂时没有生成有效回答');
+    onDelta(data.content);
+    return;
+  }
   if (!response.body) throw new Error('当前浏览器不支持流式回答');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
