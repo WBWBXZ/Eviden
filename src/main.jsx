@@ -1377,28 +1377,33 @@ function mergeHistory(localRecords, cloudReports) {
 function compactReportForCopilot(record) {
   if (!record) return null;
   const report = record.result || record;
+  const text = (value, limit = 320) => String(value || '').slice(0, limit);
+  const compactList = (values, limit = 3) => (values || []).slice(0, limit).map(item => typeof item === 'string' ? text(item) : {
+    title: text(item.title || item.gap || item.action || item.requirement, 120),
+    description: text(item.description || item.detail || item.reason || item.suggestion || item.content, 320),
+  });
   return {
     id: record.id || report.id || '',
     created_at: record.createdAt || record.created_at || '',
-    target: record.target || report.target || '',
-    company: record.company || report.company || '',
-    resume_name: record.resumeName || report.resumeName || '',
-    jd_name: record.jdName || report.jdName || '',
+    target: text(record.target || report.target, 120),
+    company: text(record.company || report.company, 120),
+    resume_name: text(record.resumeName || report.resumeName, 160),
+    jd_name: text(record.jdName || report.jdName, 160),
     score: report.score ?? null,
-    action: report.action || '',
-    summary: report.summary || '',
-    confidence: report.confidence_label || '',
-    evidence: (report.evidence || []).slice(0, 6).map(item => ({
-      requirement: item.req || '',
-      level: item.level || '',
-      proof: item.proof || '',
-      diagnosis: item.diagnosis || '',
-      suggestion: item.suggestion || '',
+    action: text(report.action, 120),
+    summary: text(report.summary, 500),
+    confidence: text(report.confidence_label, 40),
+    evidence: (report.evidence || []).slice(0, 3).map(item => ({
+      requirement: text(item.req, 260),
+      level: text(item.level, 40),
+      proof: text(item.proof || item.resumeQuote, 360),
+      diagnosis: text(item.diagnosis, 260),
+      suggestion: text(item.suggestion, 260),
     })),
-    gaps: (report.gaps || []).slice(0, 6),
-    actions: (report.actions || []).slice(0, 6),
-    rewrites: (report.rewrites || []).slice(0, 6),
-    questions: (report.questions || []).slice(0, 6),
+    gaps: compactList(report.gaps, 3),
+    actions: compactList(report.actions, 3),
+    rewrites: (report.rewrites || []).slice(0, 2).map(item => ({ before: text(item.before, 260), after: text(item.after, 360), reason: text(item.reason, 200) })),
+    questions: (report.questions || []).slice(0, 3).map(item => text(typeof item === 'string' ? item : item.question, 240)),
   };
 }
 
@@ -1448,7 +1453,7 @@ function buildCapabilityProfile(history, screeningHistory, rewriteHistory) {
     (report.gaps || []).slice(0, 2).forEach(item => gaps.push(typeof item === 'string' ? item : item.title || item.gap || item.description));
     (report.actions || []).slice(0, 2).forEach(item => actions.push(typeof item === 'string' ? item : item.title || item.action || item.description));
   });
-  const unique = values => Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).slice(0, 8);
+  const unique = values => Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).slice(0, 5).map(value => value.slice(0, 280));
   return {
     headline: targets.length ? `聚焦 ${targets[0]} · 已沉淀 ${reports.length} 份岗位分析` : '等待通过岗位分析建立能力档案',
     target_roles: targets,
