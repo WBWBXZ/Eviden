@@ -552,6 +552,13 @@ function CuteRobot({ compact = false }) {
   </span>;
 }
 
+function cleanCopilotText(text) {
+  return String(text || '')
+    .replace(/\*\*/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
 function EvidenCopilot({ token, page, contextLabel, context }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -618,7 +625,7 @@ function EvidenCopilot({ token, page, contextLabel, context }) {
         </div>
         {messages.map(message => <div className={`copilot-message ${message.role} ${message.error ? 'error' : ''}`} key={message.id}>
           {message.role === 'assistant' && <CuteRobot compact />}
-          <div className="copilot-bubble"><p>{message.text || <span className="copilot-thinking">正在思考</span>}</p></div>
+          <div className="copilot-bubble"><p>{message.text ? cleanCopilotText(message.text) : <span className="copilot-thinking">正在思考</span>}</p></div>
         </div>)}
         <div ref={messagesEndRef}></div>
       </div>
