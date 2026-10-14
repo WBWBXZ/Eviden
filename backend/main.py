@@ -1608,7 +1608,7 @@ async def copilot_chat_handler(request: CopilotChatRequest, session_key: str = D
         "model": copilot_model_name(),
         "messages": upstream_messages,
         "temperature": 0.25,
-        "max_tokens": 700,
+        "max_tokens": 500,
         "enable_thinking": False,
         "stream": False,
     }

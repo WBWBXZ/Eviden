@@ -1391,19 +1391,17 @@ function compactReportForCopilot(record) {
     jd_name: text(record.jdName || report.jdName, 160),
     score: report.score ?? null,
     action: text(report.action, 120),
-    summary: text(report.summary, 500),
+    summary: text(report.summary, 320),
     confidence: text(report.confidence_label, 40),
-    evidence: (report.evidence || []).slice(0, 3).map(item => ({
-      requirement: text(item.req, 260),
+    evidence: (report.evidence || []).slice(0, 2).map(item => ({
+      requirement: text(item.req, 180),
       level: text(item.level, 40),
-      proof: text(item.proof || item.resumeQuote, 360),
-      diagnosis: text(item.diagnosis, 260),
-      suggestion: text(item.suggestion, 260),
+      proof: text(item.proof || item.resumeQuote, 260),
     })),
-    gaps: compactList(report.gaps, 3),
-    actions: compactList(report.actions, 3),
-    rewrites: (report.rewrites || []).slice(0, 2).map(item => ({ before: text(item.before, 260), after: text(item.after, 360), reason: text(item.reason, 200) })),
-    questions: (report.questions || []).slice(0, 3).map(item => text(typeof item === 'string' ? item : item.question, 240)),
+    gaps: compactList(report.gaps, 2),
+    actions: compactList(report.actions, 2),
+    rewrites: (report.rewrites || []).slice(0, 1).map(item => ({ before: text(item.before, 180), after: text(item.after, 240), reason: text(item.reason, 140) })),
+    questions: (report.questions || []).slice(0, 2).map(item => text(typeof item === 'string' ? item : item.question, 180)),
   };
 }
 
@@ -1453,7 +1451,7 @@ function buildCapabilityProfile(history, screeningHistory, rewriteHistory) {
     (report.gaps || []).slice(0, 2).forEach(item => gaps.push(typeof item === 'string' ? item : item.title || item.gap || item.description));
     (report.actions || []).slice(0, 2).forEach(item => actions.push(typeof item === 'string' ? item : item.title || item.action || item.description));
   });
-  const unique = values => Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).slice(0, 5).map(value => value.slice(0, 280));
+  const unique = values => Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).slice(0, 3).map(value => value.slice(0, 180));
   return {
     headline: targets.length ? `聚焦 ${targets[0]} · 已沉淀 ${reports.length} 份岗位分析` : '等待通过岗位分析建立能力档案',
     target_roles: targets,
