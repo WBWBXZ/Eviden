@@ -515,21 +515,21 @@ function EvidenCopilot({ contextLabel, onOpenRewrite }) {
   const sendMessage = value => {
     const text = String(value || input).trim();
     if (!text) return;
-    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: '这是 Copilot 的交互设计预览。接入模型后，我会结合当前页面、简历和岗位要求回答，并给出对应依据和下一步', cards: true }]);
+    setMessages(current => [...current, { role: 'user', text }, { role: 'assistant', text: '这是 Evi 的交互设计预览。接入模型后，我会结合当前页面、简历和岗位要求回答，并给出对应依据和下一步', cards: true }]);
     setInput('');
   };
 
   return <>
-    {open && <aside className="copilot-drawer" aria-label="Eviden Copilot">
+    {open && <aside className="copilot-drawer" aria-label="Evi AI 助手">
       <header className="copilot-head">
-        <div className="copilot-identity"><CuteRobot compact /><div><b>Eviden Copilot</b><span>设计预览</span></div></div>
-        <button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Copilot"><X size={18} /></button>
+        <div className="copilot-identity"><CuteRobot compact /><div><b>Evi</b><span>EVIDEN AI 助手</span></div></div>
+        <button className="copilot-close" onClick={() => setOpen(false)} aria-label="关闭 Evi"><X size={18} /></button>
       </header>
       <div className="copilot-context"><small>正在查看</small><b>{contextLabel}</b></div>
       <div className="copilot-messages">
         <div className="copilot-message assistant">
           <CuteRobot compact />
-          <div className="copilot-bubble"><p>你好，我是 Eviden Copilot。你可以直接问我当前页面、岗位或简历相关的问题</p></div>
+          <div className="copilot-bubble"><p>你好，我是 Evi。你可以直接问我当前页面、岗位或简历相关的问题</p></div>
         </div>
         <div className="copilot-message assistant">
           <CuteRobot compact />
@@ -550,9 +550,9 @@ function EvidenCopilot({ contextLabel, onOpenRewrite }) {
         <button type="submit" disabled={!input.trim()} aria-label="发送"><Send size={17} /></button>
       </form>
     </aside>}
-    <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Eviden Copilot' : '打开 Eviden Copilot'}>
+    <button className={`copilot-launcher ${open ? 'open' : ''}`} onClick={() => setOpen(value => !value)} aria-label={open ? '收起 Evi' : '打开 Evi'}>
       <CuteRobot />
-      {!open && <span><b>问问 Eviden</b><small>Copilot</small></span>}
+      {!open && <span className="copilot-launcher-label"><b>Evi</b><small>有问题就问我</small></span>}
     </button>
   </>;
 }
