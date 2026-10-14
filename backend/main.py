@@ -1367,7 +1367,10 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_handler():
-    init_db()
+    try:
+        init_db()
+    except Exception as error:
+        LOGGER.exception("database initialization deferred: %s", error)
 
 
 @app.post("/api/auth/register", response_model=AuthResponse)
