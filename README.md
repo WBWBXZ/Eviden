@@ -10,9 +10,17 @@ https://a8223b45ac7d.aime-site.bytedance.net
 
 ## 产品预览
 
+### 从岗位匹配到投递决策
+
 ![Eviden 产品总览](docs/assets/eviden-overview.png)
 
-> 示例内容为脱敏演示数据，用于展示岗位分析与投递决策工作流。
+| Evi 智能求职助手 | 岗位筛选 |
+| --- | --- |
+| ![Evi 智能求职助手](docs/assets/evi-assistant.png) | ![岗位筛选](docs/assets/job-screening.png) |
+| **历史报告与岗位对比** | **投递管理工作台** |
+| ![历史报告与岗位对比](docs/assets/history-reports.png) | ![投递管理工作台](docs/assets/application-pipeline.png) |
+
+> 截图中的简历名称、岗位、公司和跟进信息均已替换为脱敏演示数据。
 
 ## 当前版本
 
