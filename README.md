@@ -8,6 +8,12 @@ Eviden 是一个 evidence-based 求职匹配与投递策略 Web App。用户导�
 
 https://a8223b45ac7d.aime-site.bytedance.net
 
+## 产品预览
+
+![Eviden 产品总览](docs/assets/eviden-overview.png)
+
+> 示例内容为脱敏演示数据，用于展示岗位分析与投递决策工作流。
+
 ## 当前版本
 
 当前版本已完成 V1 产品闭环，并接入真实 AI、用户账号和云端数据存储。
