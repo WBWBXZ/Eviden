@@ -431,8 +431,9 @@
 .application-funnel{display:block;padding:20px 24px}
 .application-funnel>div:first-child{margin-bottom:16px}
 .funnel-track{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.funnel-track span{min-height:42px;display:flex;align-items:center;padding:0 14px;background:#eee9df;color:#262521;overflow:hidden}
-.funnel-track span:before{min-width:0;width:var(--funnel-width);opacity:.92}
+.funnel-track span{min-height:42px;display:flex;align-items:center;padding:0 14px;background:#38423d;color:#fff;font-weight:650;letter-spacing:.01em;overflow:hidden;text-shadow:0 1px 2px rgba(0,0,0,.28)}
+.funnel-track span:nth-child(2){background:#596a61}.funnel-track span:nth-child(3){background:#8a7149}.funnel-track span:nth-child(4){background:#9c5844}
+.funnel-track span:before{min-width:0;width:var(--funnel-width);background:rgba(15,20,18,.2)!important;opacity:1}
 .application-board{grid-template-columns:repeat(5,minmax(210px,1fr))}
 .application-column{min-height:max(520px,calc(100vh - 420px))}
 .application-card{padding:16px}
