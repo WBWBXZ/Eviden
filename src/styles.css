@@ -392,6 +392,8 @@
 .application-kpis article{padding:18px 20px;display:grid;gap:6px}
 .application-kpis span,.application-kpis small{color:#777168;font-size:12px}
 .application-kpis b{font-family:Georgia,serif;font-size:34px;font-weight:500;color:#191815}
+.application-sync{display:inline-flex;align-items:center;margin-left:8px;padding:3px 8px;border-radius:999px;background:#e5eee8;color:#416050;font-size:11px;font-weight:650;vertical-align:1px}
+.application-sync.syncing{background:#efe7d7;color:#7b6135}.application-sync.error{background:#f2dfda;color:#8e4337}
 .application-funnel{max-width:1272px;margin:0 auto 20px;padding:20px 24px;display:grid;grid-template-columns:190px 1fr;gap:24px;align-items:center}
 .application-funnel>div:first-child{display:grid;gap:5px}.application-funnel small{color:#8a6a38;letter-spacing:.08em}.application-funnel b{font-size:18px}
 .funnel-track{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;align-items:center}
@@ -404,8 +406,10 @@
 .application-column>header b{font-size:13px}.application-column>header span{background:#e8e3d9;border-radius:999px;padding:2px 8px;font-size:11px}
 .status-preparing>header{border-color:#8b7450}.status-applied>header{border-color:#5c7482}.status-interviewing>header{border-color:#875f8f}.status-offered>header{border-color:#42715b}.status-rejected>header{border-color:#a55a4b}
 .application-column-list{display:grid;gap:8px}
-.application-card{width:100%;padding:14px;text-align:left;display:grid;gap:8px;cursor:pointer;transition:transform .18s ease,border-color .18s ease;background:#fff;color:inherit}
+.application-card{width:100%;padding:14px;text-align:left;display:grid;gap:8px;cursor:grab;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;background:#fff;color:inherit}.application-card:active{cursor:grabbing}
 .application-card:hover,.application-card.active{transform:translateY(-2px);border-color:#71644f}
+.application-card.has-reminder{border-left-width:4px}.application-card.overdue{border-left-color:#a34b3f}.application-card.due{border-left-color:#b2833f}.application-card.stagnant{border-left-color:#6d675e}
+.application-reminder{justify-self:start;padding:3px 7px;border-radius:999px;font-style:normal;font-size:10px;font-weight:700;background:#eee9df;color:#625e55}.application-reminder.overdue{background:#f3dcd7;color:#8f372d}.application-reminder.due{background:#f3e7cb;color:#7a5a22}.application-reminder.stagnant{background:#e7e4de;color:#59554e}
 .application-card small{color:#817a70}.application-card>b{font-size:15px;line-height:1.35}.application-card p{margin:0;color:#5f5a52;font-size:12px;line-height:1.5;min-height:36px}
 .application-card div{display:flex;justify-content:space-between;gap:6px;color:#8a8277;font-size:10px}.application-card time{white-space:nowrap}
 .application-empty{max-width:1272px;margin:0 auto;min-height:280px;display:grid;place-items:center;align-content:center;gap:10px}.application-empty svg{color:#8b7450}

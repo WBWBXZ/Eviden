@@ -91,6 +91,22 @@ function persistApplications(userId, records) {
   localStorage.setItem(applicationsStorageKey(userId), JSON.stringify(records.slice(0, 100)));
 }
 
+function mergeApplications(localRecords, cloudItems) {
+  const byId = new Map();
+  const add = record => {
+    if (!record?.id || !record?.target) return;
+    const normalized = { ...record, status: record.status === 'preparing' ? 'not_applied' : record.status };
+    const current = byId.get(normalized.id);
+    if (!current || new Date(normalized.updatedAt || normalized.createdAt || 0) >= new Date(current.updatedAt || current.createdAt || 0)) byId.set(normalized.id, normalized);
+  };
+  localRecords.forEach(add);
+  cloudItems.forEach(item => add({
+    ...(item?.record || {}),
+    updatedAt: item?.record?.updatedAt || (item?.updated_at ? new Date(item.updated_at * 1000).toISOString() : ''),
+  }));
+  return Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)).slice(0, 100);
+}
+
 function applicationStatusLabel(status) {
   return APPLICATION_STATUSES.find(item => item.id === status)?.label || '待投递';
 }
@@ -251,6 +267,8 @@ const fetchCloudReports = async (token) => {
 };
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+const fetchCloudApplications = (token) => apiJson('/api/applications', { token });
+const syncCloudApplications = (token, records) => apiJson('/api/applications', { method: 'PUT', token, body: { applications: records.slice(0, 100).map(record => ({ id: record.id, record })) } });
 const fetchDefaultResume = (token, signal) => apiJson('/api/default-resume', { token, signal });
 const requestDefaultResumeMutation = async (token, method, body) => {
   const controller = new AbortController();
@@ -668,7 +686,7 @@ function mergeCopilotMemory(current, incoming) {
   };
 }
 
-function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate }) {
+function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate, onUpdateApplication }) {
   const messagesKey = copilotStorageKey(COPILOT_MESSAGES_KEY_PREFIX, userId);
   const memoryKey = copilotStorageKey(COPILOT_MEMORY_KEY_PREFIX, userId);
   const [open, setOpen] = useState(false);
@@ -748,6 +766,7 @@ function EvidenCopilot({ token, userId, page, contextLabel, context, onNavigate 
   const runAction = action => {
     if (action.type === 'query') sendMessage(action.query || action.target);
     else if (action.type === 'navigate' && onNavigate) onNavigate(action.target);
+    else if (action.type === 'update_application' && onUpdateApplication) onUpdateApplication(action.application_id, action.status);
   };
   const stopStreaming = () => controllerRef.current?.abort();
 
@@ -1435,7 +1454,7 @@ function ComparePage({ records, onBack, onView }) {
   </section>;
 }
 
-function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
+function ApplicationsPage({ applications, onChange, onBack, onViewReport, syncState }) {
   const [selectedId, setSelectedId] = useState(applications[0]?.id || '');
   const [activity, setActivity] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -1459,7 +1478,7 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
   };
   const remove = record => {
     if (!record) return;
-    onChange(applications.filter(item => item.id !== record.id));
+    onChange(applications.filter(item => item.id !== record.id), { deletedId: record.id });
     setSelectedId('');
     setConfirmRemoveId('');
   };
@@ -1487,6 +1506,16 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
     setShowCreate(false);
     setSelectedId(record.id);
   };
+  const reminderFor = record => {
+    const parsedDueAt = record.dueDate ? new Date(`${record.dueDate}T23:59:59`).getTime() : 0;
+    const dueAt = Number.isFinite(parsedDueAt) ? parsedDueAt : 0;
+    const daysToDue = dueAt ? Math.ceil((dueAt - Date.now()) / 86400000) : null;
+    if (daysToDue !== null && daysToDue < 0) return { tone: 'overdue', label: `已逾期 ${Math.abs(daysToDue)} 天` };
+    if (daysToDue !== null && daysToDue <= 3) return { tone: 'due', label: daysToDue === 0 ? '今天截止' : `${daysToDue} 天内截止` };
+    const daysIdle = Math.floor((Date.now() - new Date(record.updatedAt || record.createdAt || Date.now()).getTime()) / 86400000);
+    if (!['offered', 'rejected'].includes(record.status) && daysIdle >= 7) return { tone: 'stagnant', label: `${daysIdle} 天未跟进` };
+    return null;
+  };
   const started = applications.filter(item => item.status !== 'not_applied').length;
   const interviews = applications.filter(item => ['interviewing', 'offered'].includes(item.status)).length;
   const offers = applications.filter(item => item.status === 'offered').length;
@@ -1494,7 +1523,7 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
 
   return <section className="workspace applications-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button></div></nav>
-    <div className="page-head applications-head"><div><small>APPLICATION PIPELINE / 投递管理</small><h2>投递工作台</h2><p>集中管理岗位进度、下一步行动与每次跟进</p></div><div className="application-head-actions"><div className="application-summary"><span><b>{applications.length}</b>全部岗位</span><span><b>{dueSoon}</b>7 天内待办</span></div><button className="primary" onClick={() => setShowCreate(true)}>添加岗位</button></div></div>
+    <div className="page-head applications-head"><div><small>APPLICATION PIPELINE / 投递管理</small><h2>投递工作台</h2><p>集中管理岗位进度、下一步行动与每次跟进 <span className={`application-sync ${syncState}`}>{syncState === 'syncing' ? '正在同步' : syncState === 'error' ? '同步失败 · 将自动重试' : '云端已同步'}</span></p></div><div className="application-head-actions"><div className="application-summary"><span><b>{applications.length}</b>全部岗位</span><span><b>{dueSoon}</b>7 天内待办</span></div><button className="primary" onClick={() => setShowCreate(true)}>添加岗位</button></div></div>
 
     <div className="application-kpis">
       <article className="editorial-card"><span>已加入</span><b>{applications.length}</b><small>岗位总数</small></article>
@@ -1511,7 +1540,18 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
     {applications.length === 0 ? <div className="empty-state editorial-card application-empty"><BriefcaseBusiness size={30}/><b>还没有加入投递计划的岗位</b><p>可以手动添加岗位，也可以从岗位报告中一键加入</p><button className="primary" onClick={() => setShowCreate(true)}>添加岗位</button></div> : <div className="application-board">
       {APPLICATION_STATUSES.map(status => {
         const records = applications.filter(item => item.status === status.id);
-        return <section className={`application-column status-${status.id}`} key={status.id}><header><b>{status.label}</b><span>{records.length}</span></header><div className="application-column-list">{records.map(record => <button className={`application-card editorial-card ${selectedId === record.id ? 'active' : ''}`} key={record.id} onClick={() => setSelectedId(record.id)}><small>{record.company || '公司待补充'}</small><b>{record.target}</b><p>{record.nextAction || '设置下一步行动'}</p><div><span>{record.score != null ? `匹配 ${record.score}` : '来自岗位报告'}</span><time>{record.dueDate || '暂无截止日'}</time></div></button>)}</div></section>;
+        return <section className={`application-column status-${status.id}`} key={status.id} onDragOver={event => event.preventDefault()} onDrop={event => {
+          event.preventDefault();
+          const applicationId = event.dataTransfer.getData('text/application-id');
+          const record = applications.find(item => item.id === applicationId);
+          if (record && record.status !== status.id) setStatus(record, status.id);
+        }}><header><b>{status.label}</b><span>{records.length}</span></header><div className="application-column-list">{records.map(record => {
+          const reminder = reminderFor(record);
+          return <button draggable className={`application-card editorial-card ${selectedId === record.id ? 'active' : ''} ${reminder ? `has-reminder ${reminder.tone}` : ''}`} key={record.id} onDragStart={event => {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/application-id', record.id);
+          }} onClick={() => setSelectedId(record.id)}><small>{record.company || '公司待补充'}</small><b>{record.target}</b><p>{record.nextAction || '设置下一步行动'}</p>{reminder ? <em className={`application-reminder ${reminder.tone}`}>{reminder.label}</em> : null}<div><span>{record.score != null ? `匹配 ${record.score}` : '手动添加'}</span><time>{record.dueDate || '暂无截止日'}</time></div></button>;
+        })}</div></section>;
       })}
     </div>}
 
@@ -1521,7 +1561,7 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
 
     {selected && <div className="application-detail-backdrop" role="presentation" onClick={() => setSelectedId('')}><aside className="application-detail editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
       <header><div><small>{selected.company || '公司待补充'} · {applicationStatusLabel(selected.status)}</small><h3>{selected.target}</h3></div><button onClick={() => setSelectedId('')} aria-label="关闭"><X size={20}/></button></header>
-      <div className="application-detail-fields"><label>当前状态<select value={selected.status} onChange={event => setStatus(selected, event.target.value)}>{APPLICATION_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label><label>跟进截止日<input type="date" value={selected.dueDate || ''} onChange={event => update(selected.id, { dueDate: event.target.value })}/></label><label className="wide">下一步行动<input value={selected.nextAction || ''} onChange={event => update(selected.id, { nextAction: event.target.value })} placeholder="例如：周五前完成定向简历并投递"/></label></div>
+      <div className="application-detail-fields"><label>当前状态<select value={selected.status} onChange={event => setStatus(selected, event.target.value)}>{APPLICATION_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label><label>跟进截止日<input type="date" value={selected.dueDate || ''} onChange={event => update(selected.id, { dueDate: event.target.value }, event.target.value ? `跟进截止日更新为 ${event.target.value}` : '已清除跟进截止日')}/></label><label className="wide">下一步行动<input value={selected.nextAction || ''} onChange={event => update(selected.id, { nextAction: event.target.value })} onBlur={event => event.target.value.trim() && update(selected.id, {}, `下一步行动更新为「${event.target.value.trim()}」`)} placeholder="例如：周五前完成定向简历并投递"/></label></div>
       <div className="application-report-link"><div><span>岗位报告</span><b>{selected.reportId ? (selected.score != null ? `匹配评分 ${selected.score}` : '已关联报告') : '手动添加 · 暂无报告'}</b></div>{selected.reportId && <button className="secondary" onClick={() => onViewReport(selected.reportId)}>查看报告</button>}</div>
       <div className="application-activity"><div className="panel-head"><b>跟进记录</b><span>{(selected.activities || []).length} 条</span></div><form onSubmit={addActivity}><input value={activity} onChange={event => setActivity(event.target.value)} placeholder="记录沟通、投递、面试或结果"/><button className="primary" disabled={!activity.trim()}>添加记录</button></form><div className="activity-list">{(selected.activities || []).map(item => <article key={item.id}><i></i><div><b>{item.content}</b><time>{formatDate(item.time)}</time></div></article>)}</div></div>
       <button className="secondary danger application-delete" onClick={() => setConfirmRemoveId(selected.id)}>移出投递计划</button>
@@ -1641,6 +1681,8 @@ function App() {
   const [screeningHistory, setScreeningHistory] = useState(() => getScreeningHistoryForUser(getStoredUser()?.id));
   const [rewriteHistory, setRewriteHistory] = useState(() => getRewriteHistoryForUser(getStoredUser()?.id));
   const [applications, setApplications] = useState(() => getStoredApplications(getStoredUser()?.id));
+  const [applicationSyncState, setApplicationSyncState] = useState('synced');
+  const applicationSyncTimerRef = useRef(null);
   const [selectedScreening, setSelectedScreening] = useState(null);
   const [selectedRewrite, setSelectedRewrite] = useState(null);
   const [rewriteContext, setRewriteContext] = useState(null);
@@ -1695,6 +1737,20 @@ function App() {
           if (syncError.status === 401) throw syncError;
           console.warn('restore cloud reports failed temporarily', syncError);
         }
+        try {
+          setApplicationSyncState('syncing');
+          const cloud = await fetchCloudApplications(token);
+          if (cancelled) return;
+          const mergedApplications = mergeApplications(localApplications, cloud.applications || []);
+          setApplications(mergedApplications);
+          persistApplications(userInfo.id, mergedApplications);
+          await syncCloudApplications(token, mergedApplications);
+          if (!cancelled) setApplicationSyncState('synced');
+        } catch (syncError) {
+          if (syncError.status === 401) throw syncError;
+          setApplicationSyncState('error');
+          console.warn('restore cloud applications failed temporarily', syncError);
+        }
       } catch (err) {
         if (err.status === 401) {
           localStorage.removeItem(AUTH_TOKEN_KEY);
@@ -1707,7 +1763,10 @@ function App() {
       }
     };
     restore();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (applicationSyncTimerRef.current) window.clearTimeout(applicationSyncTimerRef.current);
+    };
   }, [token]);
 
   const isLoggedIn = Boolean(token && user);
@@ -1765,6 +1824,19 @@ function App() {
         persistRewriteHistory(mergedRewrites, auth.user.id);
       })
       .catch(err => console.warn('sync history failed', err));
+    setApplicationSyncState('syncing');
+    fetchCloudApplications(auth.token)
+      .then(cloud => {
+        const mergedApplications = mergeApplications(localApplications, cloud.applications || []);
+        setApplications(mergedApplications);
+        persistApplications(auth.user.id, mergedApplications);
+        return syncCloudApplications(auth.token, mergedApplications);
+      })
+      .then(() => setApplicationSyncState('synced'))
+      .catch(err => {
+        setApplicationSyncState('error');
+        console.warn('sync applications failed', err);
+      });
   };
 
   const confirmLogout = () => {
@@ -1865,9 +1937,34 @@ function App() {
     setStep('compare');
   };
 
-  const updateApplications = records => {
+  const updateApplications = (records, { deletedId = '' } = {}) => {
     setApplications(records);
     persistApplications(user?.id, records);
+    if (!token || !user?.id) return;
+    setApplicationSyncState('syncing');
+    if (applicationSyncTimerRef.current) window.clearTimeout(applicationSyncTimerRef.current);
+    const sync = async () => {
+      try {
+        await syncCloudApplications(token, records);
+        setApplicationSyncState('synced');
+      } catch (error) {
+        setApplicationSyncState('error');
+        console.warn('sync applications failed temporarily', error);
+      }
+    };
+    applicationSyncTimerRef.current = window.setTimeout(sync, deletedId ? 0 : 500);
+  };
+
+  const updateApplicationFromCopilot = (applicationId, status) => {
+    const record = applications.find(item => item.id === applicationId);
+    if (!record || !APPLICATION_STATUSES.some(item => item.id === status) || record.status === status) return;
+    const now = new Date().toISOString();
+    updateApplications(applications.map(item => item.id !== applicationId ? item : {
+      ...item,
+      status,
+      updatedAt: now,
+      activities: [{ id: `activity-${createRequestId()}`, time: now, type: 'status', content: `Evi 将状态更新为「${applicationStatusLabel(status)}」` }, ...(item.activities || [])],
+    }));
   };
 
   const reportForResult = result ? history.find(record => record.result === result || (record.target === (result.target || result.jdName) && record.result?.score === result.score) || record.result?.jdName === result.jdName) : null;
@@ -1934,7 +2031,7 @@ function App() {
           : step === 'history'
             ? { reports: history.slice(0, 6).map(compactReportForCopilot), screenings: screeningHistory.slice(0, 4).map(compactScreeningForCopilot), rewrites: rewriteHistory.slice(0, 4).map(compactRewriteForCopilot) }
             : step === 'applications'
-              ? { applications: applications.slice().sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt)).slice(0, 20).map(item => ({ target: item.target, company: item.company, status: applicationStatusLabel(item.status), next_action: item.nextAction, due_date: item.dueDate, updated_at: item.updatedAt, activities: (item.activities || []).slice(0, 4) })) }
+              ? { applications: applications.slice().sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt)).slice(0, 20).map(item => ({ application_id: item.id, target: item.target, company: item.company, status: item.status, status_label: applicationStatusLabel(item.status), next_action: item.nextAction, due_date: item.dueDate, updated_at: item.updatedAt, activities: (item.activities || []).slice(0, 4) })) }
               : step === 'compare'
                 ? { reports: compareRecords.slice(0, 4).map(compactReportForCopilot) }
                 : { report: compactReportForCopilot(result) };
@@ -1955,7 +2052,7 @@ function App() {
     }
     go(target || 'landing');
   };
-  const withAuth = page => <>{page}<EvidenCopilot key={user?.id || 'guest'} token={token} userId={user?.id} page={copilotPage} contextLabel={copilotContext} context={copilotData} onNavigate={handleCopilotNavigate} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
+  const withAuth = page => <>{page}<EvidenCopilot key={user?.id || 'guest'} token={token} userId={user?.id} page={copilotPage} contextLabel={copilotContext} context={copilotData} onNavigate={handleCopilotNavigate} onUpdateApplication={updateApplicationFromCopilot} />{showAuth && <AuthModal onClose={closeAuth} onSuccess={handleAuthSuccess} />}{showLogoutConfirm && <div className="modal-backdrop" role="presentation" onClick={() => setShowLogoutConfirm(false)}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><small>SIGN OUT</small><h3>确认退出登录？</h3><p>退出后将返回首页</p><div className="modal-actions"><button className="secondary" onClick={() => setShowLogoutConfirm(false)}>取消</button><button className="primary danger-solid" onClick={confirmLogout}>确认退出</button></div></div></div>}</>;
 
   if (step === 'landing') return withAuth(<Landing onStart={() => requireLogin('input')} onScreenJobs={() => requireLogin('screening')} onOptimizeResume={() => { setRewriteContext(null); setSelectedRewrite(null); requireLogin('rewrite'); }} onOpenHistory={() => requireLogin('history')} onOpenApplications={() => requireLogin('applications')} historyCount={isLoggedIn ? history.length : 0} applicationCount={isLoggedIn ? applications.length : 0} user={user} latestReport={isLoggedIn ? history[0] : null} onViewLatest={viewRecord} onAuth={() => setShowAuth(true)} onLogout={() => setShowLogoutConfirm(true)} />);
   if (step === 'screening') return withAuth(<JobScreening key={selectedScreening?.id || 'new-screening'} token={token} user={user} onBack={() => setStep('landing')} onStart={() => setStep('input')} onAnalyze={saveAndShowResult} onSaveScreening={saveScreeningRecord} initialRecord={selectedScreening} />);
@@ -1963,7 +2060,7 @@ function App() {
   if (step === 'input') return withAuth(<InputPanel token={token} user={user} onAnalyze={saveAndShowResult} onBack={backFromCurrent} onOpenHistory={() => requireLogin('history')} onOpenRewrite={context => { setSelectedRewrite(null); setRewriteContext(context); go('rewrite'); }} />);
   if (step === 'history') return withAuth(<HistoryPage records={history} screeningRecords={screeningHistory} rewriteRecords={rewriteHistory} onView={viewRecord} onViewScreening={viewScreeningRecord} onViewRewrite={viewRewriteRecord} onDelete={deleteRecord} onDeleteScreening={deleteScreeningRecord} onDeleteRewrite={deleteRewriteRecord} onBack={() => setStep('landing')} onCompare={openCompare} />);
   if (step === 'compare') return withAuth(<ComparePage records={compareRecords} onBack={() => setStep('history')} onView={viewRecord} />);
-  if (step === 'applications') return withAuth(<ApplicationsPage applications={applications} onChange={updateApplications} onBack={() => setStep('landing')} onViewReport={viewApplicationReport} />);
+  if (step === 'applications') return withAuth(<ApplicationsPage applications={applications} onChange={updateApplications} onBack={() => setStep('landing')} onViewReport={viewApplicationReport} syncState={applicationSyncState} />);
   return withAuth(<ResultPage result={result} onBack={backFromCurrent} backLabel={previousStep === 'history' ? '返回历史报告' : previousStep === 'compare' ? '返回岗位对比' : previousStep === 'applications' ? '返回投递管理' : '返回上一步'} showHistoryButton={previousStep !== 'history'} onHome={() => setStep('landing')} onOpenHistory={() => requireLogin('history')} onCompare={() => openCompare(history)} onAddApplication={addCurrentReportToApplications} applicationAdded={Boolean(currentApplication)} />);
 }
 
