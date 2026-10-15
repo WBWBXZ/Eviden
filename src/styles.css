@@ -422,3 +422,30 @@
 
 @media(max-width:900px){.application-kpis{grid-template-columns:repeat(2,1fr)}.application-funnel{grid-template-columns:1fr}.funnel-track{grid-template-columns:1fr 1fr}.application-board{grid-template-columns:repeat(6,210px)}.application-summary{display:none}}
 @media(max-width:560px){.application-kpis{grid-template-columns:1fr 1fr;padding:0 14px}.application-board{padding:0 14px}.application-funnel{margin-inline:14px}.application-detail-fields{grid-template-columns:1fr}.application-detail-fields .wide{grid-column:auto}.application-activity form{grid-template-columns:1fr}}
+
+/* Application pipeline refinement */
+.applications-page{min-height:100vh;padding-bottom:140px}
+.application-head-actions{display:flex;align-items:flex-end;gap:12px}
+.application-head-actions>.primary{min-height:58px;padding-inline:20px;white-space:nowrap}
+.application-kpis,.application-funnel,.application-board{width:100%;max-width:1320px;box-sizing:border-box}
+.application-funnel{display:block;padding:20px 24px}
+.application-funnel>div:first-child{margin-bottom:16px}
+.funnel-track{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.funnel-track span{min-height:42px;display:flex;align-items:center;padding:0 14px;background:#eee9df;color:#262521;overflow:hidden}
+.funnel-track span:before{min-width:0;width:var(--funnel-width);opacity:.92}
+.application-board{grid-template-columns:repeat(5,minmax(210px,1fr))}
+.application-column{min-height:max(520px,calc(100vh - 420px))}
+.application-card{padding:16px}
+.application-card div{font-size:11px;padding-top:4px;border-top:1px solid #eee9df}
+.application-create-backdrop,.application-remove-confirm{z-index:90}
+.application-create-modal{width:min(640px,calc(100vw - 32px));max-width:640px}
+.application-create-modal>p{margin-bottom:20px;color:#69645b}
+.application-create-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 22px}
+.application-create-fields label{display:grid;gap:7px;color:#686158;font-size:12px}
+.application-create-fields label.wide{grid-column:1/-1}
+.application-create-fields input,.application-create-fields select{width:100%;box-sizing:border-box;border:1px solid #ccc5ba;background:#fff;padding:12px;font:inherit;color:#272520;outline:none}
+.application-create-fields input:focus,.application-create-fields select:focus{border-color:#77694f}
+.danger-solid{background:#9b493c!important;border-color:#9b493c!important;color:#fff!important}
+
+@media(max-width:1100px){.application-head-actions{align-items:stretch}.application-board{grid-template-columns:repeat(5,220px)}.application-column{min-height:520px}}
+@media(max-width:700px){.application-head-actions{width:100%;display:grid}.application-head-actions>.primary{min-height:44px}.application-summary{display:grid;grid-template-columns:1fr 1fr}.funnel-track{grid-template-columns:1fr 1fr}.application-create-fields{grid-template-columns:1fr}.application-create-fields label.wide{grid-column:auto}}

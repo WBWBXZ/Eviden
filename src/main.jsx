@@ -57,7 +57,6 @@ const COPILOT_MEMORY_KEY_PREFIX = 'eviden.copilot.memory.v1';
 const APPLICATIONS_KEY_PREFIX = 'eviden.applications.v1';
 const APPLICATION_STATUSES = [
   { id: 'not_applied', label: '待投递' },
-  { id: 'preparing', label: '准备中' },
   { id: 'applied', label: '已投递' },
   { id: 'interviewing', label: '面试中' },
   { id: 'offered', label: '已录用' },
@@ -82,7 +81,10 @@ function applicationsStorageKey(userId) {
 
 function getStoredApplications(userId) {
   const stored = safeParse(localStorage.getItem(applicationsStorageKey(userId)), []);
-  return Array.isArray(stored) ? stored.filter(item => item?.id && item?.target) : [];
+  return Array.isArray(stored) ? stored.filter(item => item?.id && item?.target).map(item => ({
+    ...item,
+    status: item.status === 'preparing' ? 'not_applied' : item.status,
+  })) : [];
 }
 
 function persistApplications(userId, records) {
@@ -843,7 +845,7 @@ function Landing({ onStart, onScreenJobs, onOptimizeResume, onOpenHistory, onOpe
     <nav className="nav product-nav">
       <Brand />
       <div className="nav-right">
-        <div className="nav-links nav-actions-compact"><button onClick={onOpenApplications}>投递管理 {applicationCount ? `(${applicationCount})` : ''}</button><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onOptimizeResume}>简历优化</button><button onClick={onStart}>开始分析</button></div>
+        <div className="nav-links nav-actions-compact"><button onClick={onOpenHistory}>历史报告 {historyCount ? `(${historyCount})` : ''}</button><button onClick={onOpenApplications}>投递管理 {applicationCount ? `(${applicationCount})` : ''}</button><button onClick={onScreenJobs}>岗位筛选</button><button onClick={onOptimizeResume}>简历优化</button><button onClick={onStart}>开始分析</button></div>
         <div className="account-entry">{user ? <button onClick={onLogout}>退出登录</button> : <button onClick={onAuth}>登录</button>}</div>
       </div>
     </nav>
@@ -1436,6 +1438,9 @@ function ComparePage({ records, onBack, onView }) {
 function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
   const [selectedId, setSelectedId] = useState(applications[0]?.id || '');
   const [activity, setActivity] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState('');
+  const [draft, setDraft] = useState({ target: '', company: '', status: 'not_applied', nextAction: '', dueDate: '' });
   const selected = applications.find(item => item.id === selectedId) || null;
   const update = (id, patch, activityText = '') => {
     onChange(applications.map(item => item.id !== id ? item : {
@@ -1453,17 +1458,43 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
     setActivity('');
   };
   const remove = record => {
+    if (!record) return;
     onChange(applications.filter(item => item.id !== record.id));
     setSelectedId('');
+    setConfirmRemoveId('');
   };
-  const started = applications.filter(item => !['not_applied', 'preparing'].includes(item.status)).length;
+  const createApplication = event => {
+    event.preventDefault();
+    if (!draft.target.trim()) return;
+    const now = new Date().toISOString();
+    const record = {
+      id: `application-${createRequestId()}`,
+      reportId: '',
+      rewriteId: '',
+      target: draft.target.trim(),
+      company: draft.company.trim(),
+      businessUnit: '',
+      status: draft.status,
+      score: null,
+      nextAction: draft.nextAction.trim() || '完善岗位信息并准备投递',
+      dueDate: draft.dueDate,
+      createdAt: now,
+      updatedAt: now,
+      activities: [{ id: `activity-${createRequestId()}`, time: now, type: 'created', content: '手动加入投递计划' }],
+    };
+    onChange([record, ...applications]);
+    setDraft({ target: '', company: '', status: 'not_applied', nextAction: '', dueDate: '' });
+    setShowCreate(false);
+    setSelectedId(record.id);
+  };
+  const started = applications.filter(item => item.status !== 'not_applied').length;
   const interviews = applications.filter(item => ['interviewing', 'offered'].includes(item.status)).length;
   const offers = applications.filter(item => item.status === 'offered').length;
   const dueSoon = applications.filter(item => item.dueDate && new Date(item.dueDate).getTime() >= Date.now() && new Date(item.dueDate).getTime() - Date.now() < 7 * 86400000).length;
 
   return <section className="workspace applications-page">
     <nav className="nav in-app"><Brand /><div className="nav-actions"><button className="secondary" onClick={onBack}>返回首页</button></div></nav>
-    <div className="page-head applications-head"><div><small>APPLICATION PIPELINE / 投递管理</small><h2>投递工作台</h2><p>集中管理岗位进度、下一步行动与每次跟进</p></div><div className="application-summary"><span><b>{applications.length}</b>全部岗位</span><span><b>{dueSoon}</b>7 天内待办</span></div></div>
+    <div className="page-head applications-head"><div><small>APPLICATION PIPELINE / 投递管理</small><h2>投递工作台</h2><p>集中管理岗位进度、下一步行动与每次跟进</p></div><div className="application-head-actions"><div className="application-summary"><span><b>{applications.length}</b>全部岗位</span><span><b>{dueSoon}</b>7 天内待办</span></div><button className="primary" onClick={() => setShowCreate(true)}>手动添加岗位</button></div></div>
 
     <div className="application-kpis">
       <article className="editorial-card"><span>已加入</span><b>{applications.length}</b><small>岗位总数</small></article>
@@ -1477,19 +1508,23 @@ function ApplicationsPage({ applications, onChange, onBack, onViewReport }) {
       <div className="funnel-track"><span style={{ '--funnel-width': '100%' }}>加入计划 {applications.length}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(24, started / applications.length * 100) : 24}%` }}>已投递 {started}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(18, interviews / applications.length * 100) : 18}%` }}>面试 {interviews}</span><span style={{ '--funnel-width': `${applications.length ? Math.max(12, offers / applications.length * 100) : 12}%` }}>录用 {offers}</span></div>
     </div>
 
-    {applications.length === 0 ? <div className="empty-state editorial-card application-empty"><BriefcaseBusiness size={30}/><b>还没有加入投递计划的岗位</b><p>打开一份岗位报告，点击「加入投递计划」即可开始管理</p></div> : <div className="application-board">
+    {applications.length === 0 ? <div className="empty-state editorial-card application-empty"><BriefcaseBusiness size={30}/><b>还没有加入投递计划的岗位</b><p>可以手动添加岗位，也可以从岗位报告中一键加入</p><button className="primary" onClick={() => setShowCreate(true)}>手动添加岗位</button></div> : <div className="application-board">
       {APPLICATION_STATUSES.map(status => {
         const records = applications.filter(item => item.status === status.id);
         return <section className={`application-column status-${status.id}`} key={status.id}><header><b>{status.label}</b><span>{records.length}</span></header><div className="application-column-list">{records.map(record => <button className={`application-card editorial-card ${selectedId === record.id ? 'active' : ''}`} key={record.id} onClick={() => setSelectedId(record.id)}><small>{record.company || '公司待补充'}</small><b>{record.target}</b><p>{record.nextAction || '设置下一步行动'}</p><div><span>{record.score != null ? `匹配 ${record.score}` : '来自岗位报告'}</span><time>{record.dueDate || '暂无截止日'}</time></div></button>)}</div></section>;
       })}
     </div>}
 
+    {showCreate && <div className="modal-backdrop application-create-backdrop" role="presentation" onClick={() => setShowCreate(false)}><form className="confirm-modal editorial-card application-create-modal" onSubmit={createApplication} onClick={event => event.stopPropagation()}><div className="modal-kicker">ADD APPLICATION / 手动添加</div><h3>添加投递岗位</h3><p>不需要先生成岗位报告，也可以直接管理投递进度</p><div className="application-create-fields"><label>岗位名称<input autoFocus value={draft.target} onChange={event => setDraft({ ...draft, target: event.target.value })} placeholder="例如：AI 产品经理"/></label><label>公司<input value={draft.company} onChange={event => setDraft({ ...draft, company: event.target.value })} placeholder="例如：某科技公司"/></label><label>当前状态<select value={draft.status} onChange={event => setDraft({ ...draft, status: event.target.value })}>{APPLICATION_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label><label>截止日期<input type="date" value={draft.dueDate} onChange={event => setDraft({ ...draft, dueDate: event.target.value })}/></label><label className="wide">下一步行动<input value={draft.nextAction} onChange={event => setDraft({ ...draft, nextAction: event.target.value })} placeholder="例如：周五前完成定向简历并投递"/></label></div><div className="confirm-actions"><button type="button" className="secondary" onClick={() => setShowCreate(false)}>取消</button><button className="primary" disabled={!draft.target.trim()}>添加岗位</button></div></form></div>}
+
+    {confirmRemoveId && <div className="modal-backdrop application-remove-confirm" role="presentation" onClick={() => setConfirmRemoveId('')}><div className="confirm-modal editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="modal-kicker">REMOVE APPLICATION / 移出投递</div><h3>确认移出这个岗位？</h3><p>岗位的状态、下一步行动和全部跟进记录都会被删除，且无法恢复</p><div className="confirm-actions"><button className="secondary" onClick={() => setConfirmRemoveId('')}>取消</button><button className="primary danger-solid" onClick={() => remove(applications.find(item => item.id === confirmRemoveId))}>确认移出</button></div></div></div>}
+
     {selected && <div className="application-detail-backdrop" role="presentation" onClick={() => setSelectedId('')}><aside className="application-detail editorial-card" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
       <header><div><small>{selected.company || '公司待补充'} · {applicationStatusLabel(selected.status)}</small><h3>{selected.target}</h3></div><button onClick={() => setSelectedId('')} aria-label="关闭"><X size={20}/></button></header>
       <div className="application-detail-fields"><label>当前状态<select value={selected.status} onChange={event => setStatus(selected, event.target.value)}>{APPLICATION_STATUSES.map(status => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label><label>跟进截止日<input type="date" value={selected.dueDate || ''} onChange={event => update(selected.id, { dueDate: event.target.value })}/></label><label className="wide">下一步行动<input value={selected.nextAction || ''} onChange={event => update(selected.id, { nextAction: event.target.value })} placeholder="例如：周五前完成定向简历并投递"/></label></div>
-      <div className="application-report-link"><div><span>岗位报告</span><b>{selected.score != null ? `匹配评分 ${selected.score}` : '已关联报告'}</b></div>{selected.reportId && <button className="secondary" onClick={() => onViewReport(selected.reportId)}>查看报告</button>}</div>
+      <div className="application-report-link"><div><span>岗位报告</span><b>{selected.reportId ? (selected.score != null ? `匹配评分 ${selected.score}` : '已关联报告') : '手动添加 · 暂无报告'}</b></div>{selected.reportId && <button className="secondary" onClick={() => onViewReport(selected.reportId)}>查看报告</button>}</div>
       <div className="application-activity"><div className="panel-head"><b>跟进记录</b><span>{(selected.activities || []).length} 条</span></div><form onSubmit={addActivity}><input value={activity} onChange={event => setActivity(event.target.value)} placeholder="记录沟通、投递、面试或结果"/><button className="primary" disabled={!activity.trim()}>添加记录</button></form><div className="activity-list">{(selected.activities || []).map(item => <article key={item.id}><i></i><div><b>{item.content}</b><time>{formatDate(item.time)}</time></div></article>)}</div></div>
-      <button className="secondary danger application-delete" onClick={() => remove(selected)}>移出投递计划</button>
+      <button className="secondary danger application-delete" onClick={() => setConfirmRemoveId(selected.id)}>移出投递计划</button>
     </aside></div>}
   </section>;
 }
