@@ -24,9 +24,11 @@ import uvicorn
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2.pool import ThreadedConnectionPool
 except ImportError:  # pragma: no cover - SQLite fallback still works without Postgres dependency.
     psycopg2 = None
     RealDictCursor = None
+    ThreadedConnectionPool = None
 from docx import Document
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -54,6 +56,9 @@ if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _ANALYSIS_JOBS: Dict[str, Dict[str, Any]] = {}
 _ANALYSIS_JOBS_LOCK = threading.Lock()
+_DB_POOL = None
+_DB_POOL_LOCK = threading.Lock()
+_DATABASE_URL_CACHE = ""
 DIMENSION_WEIGHTS = {
     "核心能力匹配": 30,
     "经历证据强度": 25,
@@ -375,57 +380,93 @@ class ResumeParseJsonRequest(BaseModel):
 
 
 def database_url() -> str:
+    global _DATABASE_URL_CACHE
+    if _DATABASE_URL_CACHE:
+        return _DATABASE_URL_CACHE
     explicit_url = DATABASE_URL or read_local_secret("DATABASE_URL") or read_config_module("DATABASE_URL")
     if explicit_url:
-        return explicit_url.strip()
+        _DATABASE_URL_CACHE = explicit_url.strip()
+        return _DATABASE_URL_CACHE
     db_password = get_secret("SUPABASE_DB_PASSWORD")
     if not db_password:
         return ""
     db_host = get_secret("SUPABASE_DB_HOST") or "db.fjuiloufsrvewjlvijys.supabase.co"
     db_user = get_secret("SUPABASE_DB_USER") or "postgres"
-    return "postgresql://{0}:{1}@{2}:5432/postgres".format(quote(db_user, safe=""), quote(db_password, safe=""), db_host)
+    _DATABASE_URL_CACHE = "postgresql://{0}:{1}@{2}:5432/postgres".format(quote(db_user, safe=""), quote(db_password, safe=""), db_host)
+    return _DATABASE_URL_CACHE
 
 
 def use_postgres() -> bool:
     return bool(database_url())
 
 
+def postgres_pool():  # type: ignore[no-untyped-def]
+    global _DB_POOL
+    if _DB_POOL is not None:
+        return _DB_POOL
+    if ThreadedConnectionPool is None:
+        raise RuntimeError("Postgres dependency is not installed")
+    with _DB_POOL_LOCK:
+        if _DB_POOL is None:
+            _DB_POOL = ThreadedConnectionPool(
+                1,
+                5,
+                database_url(),
+                cursor_factory=RealDictCursor,
+                connect_timeout=6,
+                keepalives=1,
+                keepalives_idle=5,
+                keepalives_interval=2,
+                keepalives_count=2,
+                tcp_user_timeout=6000,
+                sslmode="require",
+                options="-c statement_timeout=15000",
+            )
+    return _DB_POOL
+
+
 @contextmanager
 def db_connection():  # type: ignore[no-untyped-def]
     if use_postgres():
-        if psycopg2 is None:
-            raise RuntimeError("Postgres dependency is not installed")
+        pool = None
         connection = None
         last_error = None
         for attempt in range(3):
             try:
-                connection = psycopg2.connect(
-                    database_url(),
-                    cursor_factory=RealDictCursor,
-                    connect_timeout=6,
-                    keepalives=1,
-                    keepalives_idle=5,
-                    keepalives_interval=2,
-                    keepalives_count=2,
-                    tcp_user_timeout=6000,
-                    sslmode="require",
-                    options="-c statement_timeout=15000",
-                )
+                pool = postgres_pool()
+                connection = pool.getconn()
+                if connection.closed:
+                    pool.putconn(connection, close=True)
+                    connection = None
+                    raise RuntimeError("Pooled database connection is closed")
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                connection.rollback()
                 break
             except Exception as error:
                 last_error = error
+                if pool is not None and connection is not None:
+                    try:
+                        pool.putconn(connection, close=True)
+                    except Exception:
+                        pass
+                connection = None
                 if attempt < 2:
-                    time.sleep(0.6 * (attempt + 1))
-        if connection is None:
+                    time.sleep(0.4 * (attempt + 1))
+        if connection is None or pool is None:
             raise RuntimeError("Could not connect to the database") from last_error
+        close_connection = False
         try:
             yield connection
             connection.commit()
         except Exception:
-            connection.rollback()
+            try:
+                connection.rollback()
+            except Exception:
+                close_connection = True
             raise
         finally:
-            connection.close()
+            pool.putconn(connection, close=close_connection)
         return
     os.makedirs(DATA_DIR, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)

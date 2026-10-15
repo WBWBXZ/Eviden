@@ -250,8 +250,27 @@ async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
   return responseText ? JSON.parse(responseText) : null;
 }
 
-const authLogin = (payload) => apiJson('/api/auth/login', { method: 'POST', body: payload });
-const authRegister = (payload) => apiJson('/api/auth/register', { method: 'POST', body: payload });
+async function authRequest(path, payload) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      return await apiJson(path, { method: 'POST', body: payload, signal: controller.signal });
+    } catch (error) {
+      lastError = error;
+      if (!error.transient && error.name !== 'AbortError') throw error;
+      if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 600));
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+  if (lastError?.name === 'AbortError') throw new Error('登录服务响应较慢，请重新尝试');
+  throw new Error('登录服务连接暂时不稳定，请重新尝试');
+}
+
+const authLogin = (payload) => authRequest('/api/auth/login', payload);
+const authRegister = (payload) => authRequest('/api/auth/register', payload);
 const authMe = (token) => apiJson('/api/auth/me', { token });
 const fetchCloudReports = async (token) => {
   const controller = new AbortController();
@@ -810,6 +829,15 @@ function AuthModal({ onClose, onSuccess }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8000);
+    apiJson('/api/health', { signal: controller.signal }).catch(() => {}).finally(() => window.clearTimeout(timer));
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, []);
   const submit = async () => {
     if (loading) return;
     setLoading(true);
