@@ -287,7 +287,7 @@ const fetchCloudReports = async (token) => {
 const saveCloudReport = (token, record) => apiJson('/api/reports', { method: 'POST', token, body: { id: record.id, record } });
 const deleteCloudReport = (token, id) => apiJson(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE', token });
 const fetchCloudApplications = (token) => apiJson('/api/applications', { token });
-const syncCloudApplications = (token, records) => apiJson('/api/applications', { method: 'PUT', token, body: { applications: records.slice(0, 100).map(record => ({ id: record.id, record })) } });
+const syncCloudApplications = (token, records, deletedIds = []) => apiJson('/api/applications', { method: 'PUT', token, body: { applications: records.slice(0, 100).map(record => ({ id: record.id, record })), deleted_ids: deletedIds } });
 const fetchDefaultResume = (token, signal) => apiJson('/api/default-resume', { token, signal });
 const requestDefaultResumeMutation = async (token, method, body) => {
   const controller = new AbortController();
@@ -407,7 +407,7 @@ function formatDate(value) {
   });
 }
 
-async function requestModelJson(path, body, fallbackMessage) {
+async function requestModelJson(path, body, fallbackMessage, token) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const attemptStartedAt = Date.now();
@@ -416,7 +416,7 @@ async function requestModelJson(path, body, fallbackMessage) {
     try {
       const response = await fetch(`${API_BASE_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -542,14 +542,14 @@ async function resumePendingAnalysis(token) {
   return { result, input: pending.input };
 }
 
-async function requestJobScreening({ resume, jobs }) {
+async function requestJobScreening({ resume, jobs, token }) {
   return requestModelJson('/api/screen-jobs', {
     resume,
     jds: jobs.map(job => ({ title: job.title, company: job.company, business_unit: job.businessUnit, jd: job.jd })),
-  }, '岗位筛选暂时没有完成，请重新生成。');
+  }, '岗位筛选暂时没有完成，请重新生成。', token);
 }
 
-async function requestResumeParse(file) {
+async function requestResumeParse(file, token) {
   if (file.size > 8 * 1024 * 1024) throw new Error('文件过大，请上传 8MB 以内的简历。');
   const contentBase64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -563,7 +563,7 @@ async function requestResumeParse(file) {
   try {
     response = await fetch(`${API_BASE_URL}/api/parse-resume-json`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ filename: file.name, content_base64: contentBase64 }),
       signal: controller.signal,
     });
@@ -958,7 +958,7 @@ function JobScreening({ token, user, onBack, onAnalyze, onStart, onSaveScreening
     if (validJobs.length < 2) return setError('请至少完整填写 2 个岗位。');
     setLoading(true); setError(''); setResults([]);
     try {
-      const data = await requestJobScreening({ resume, jobs: validJobs });
+      const data = await requestJobScreening({ resume, jobs: validJobs, token });
       const nextResults = (data.results || []).map(item => ({ ...item, priority: item.score >= 80 ? '高优先级' : item.score >= 65 ? '中优先级' : '低优先级' }));
       setResults(nextResults);
       setNotice(`岗位适配度对比完成，已生成 ${nextResults.length} 个岗位的推荐顺序`);
@@ -1137,7 +1137,7 @@ function InputPanel({ onAnalyze, onBack, onOpenHistory, onOpenRewrite, token, us
     setParseMessage('正在解析简历文件，扫描版 PDF 可能需要更久…');
     setResumeSyncMessage('解析成功后会替换当前默认简历');
     try {
-      const parsed = await requestResumeParse(file);
+      const parsed = await requestResumeParse(file, token);
       const nextResume = normalizeDefaultResume({
         filename: file.name,
         resume_text: parsed.text,
@@ -1973,7 +1973,7 @@ function App() {
     if (applicationSyncTimerRef.current) window.clearTimeout(applicationSyncTimerRef.current);
     const sync = async () => {
       try {
-        await syncCloudApplications(token, records);
+        await syncCloudApplications(token, records, deletedId ? [deletedId] : []);
         setApplicationSyncState('synced');
       } catch (error) {
         setApplicationSyncState('error');

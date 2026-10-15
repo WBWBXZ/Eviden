@@ -202,6 +202,13 @@ class CloudApplicationsResponse(BaseModel):
 
 class CloudApplicationsSyncRequest(BaseModel):
     applications: List[CloudApplicationRequest] = Field(default_factory=list, max_items=100)
+    deleted_ids: List[str] = Field(default_factory=list, max_items=100)
+
+    @validator("deleted_ids", pre=True, always=True)
+    def validate_deleted_ids(cls, values: Any) -> List[str]:
+        if not isinstance(values, list):
+            return []
+        return [str(value).strip()[:160] for value in values if str(value).strip()][:100]
 
 
 class DefaultResumeRequest(BaseModel):
@@ -717,6 +724,7 @@ def authenticate_and_create_session(phone: str, password: str):  # type: ignore[
     with db_connection() as connection:
         if use_postgres():
             with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sessions WHERE expires_at <= %s", (now,))
                 cursor.execute("SELECT * FROM users WHERE phone = %s", (phone,))
                 row = cursor.fetchone()
                 if row is None or not verify_password(password, str(row["password_hash"])):
@@ -726,6 +734,7 @@ def authenticate_and_create_session(phone: str, password: str):  # type: ignore[
                     (token, int(row["id"]), now + TOKEN_TTL_SECONDS, now),
                 )
                 return row, token
+        connection.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
         row = connection.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
         if row is None or not verify_password(password, str(row["password_hash"])):
             return None, ""
@@ -769,13 +778,8 @@ def current_user(authorization: Optional[str] = Header(default=None)) -> UserInf
     return user_from_row(row)
 
 
-def copilot_session(authorization: Optional[str] = Header(default=None)) -> str:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="请先登录")
-    token = authorization.split(" ", 1)[1].strip()
-    if len(token) < 20:
-        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+def copilot_session(user: UserInfo = Depends(current_user)) -> str:
+    return hashlib.sha256(str(user.id).encode("utf-8")).hexdigest()[:12]
 
 
 def clean_resume_text(text: str) -> str:
@@ -1552,7 +1556,6 @@ def list_applications_handler(user: UserInfo = Depends(current_user)):
 def sync_applications_handler(request: CloudApplicationsSyncRequest, user: UserInfo = Depends(current_user)):
     now = int(time.time())
     rows = []
-    response_records = []
     for item in request.applications:
         record = dict(item.record or {})
         if str(record.get("id") or "") != item.id:
@@ -1562,18 +1565,38 @@ def sync_applications_handler(request: CloudApplicationsSyncRequest, user: UserI
         if not str(record.get("target") or "").strip():
             raise HTTPException(status_code=400, detail="岗位名称不能为空")
         rows.append((item.id, user.id, json.dumps(record, ensure_ascii=False), now))
-        response_records.append(CloudApplication(id=item.id, record=record, updated_at=now))
     with db_connection() as connection:
         if use_postgres():
             with connection.cursor() as cursor:
-                cursor.execute(sql_params("DELETE FROM applications WHERE user_id = ?"), (user.id,))
+                if request.deleted_ids:
+                    cursor.executemany(sql_params("DELETE FROM applications WHERE id = ? AND user_id = ?"), [(item_id, user.id) for item_id in request.deleted_ids])
                 if rows:
-                    cursor.executemany(sql_params("INSERT INTO applications(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)"), rows)
+                    cursor.executemany(
+                        sql_params("""
+                        INSERT INTO applications(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(id, user_id) DO UPDATE SET record_json = excluded.record_json, updated_at = excluded.updated_at
+                        """),
+                        rows,
+                    )
         else:
-            connection.execute("DELETE FROM applications WHERE user_id = ?", (user.id,))
+            if request.deleted_ids:
+                connection.executemany("DELETE FROM applications WHERE id = ? AND user_id = ?", [(item_id, user.id) for item_id in request.deleted_ids])
             if rows:
-                connection.executemany("INSERT INTO applications(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)", rows)
-    return CloudApplicationsResponse(applications=response_records)
+                connection.executemany(
+                    """
+                    INSERT INTO applications(id, user_id, record_json, updated_at) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id, user_id) DO UPDATE SET record_json = excluded.record_json, updated_at = excluded.updated_at
+                    """,
+                    rows,
+                )
+    merged_rows = fetch_all(
+        "SELECT id, record_json, updated_at FROM applications WHERE user_id = ? ORDER BY updated_at DESC",
+        (user.id,),
+    )
+    return CloudApplicationsResponse(applications=[
+        CloudApplication(id=str(row["id"]), record=json.loads(str(row["record_json"])), updated_at=int(row["updated_at"]))
+        for row in merged_rows
+    ])
 
 
 @app.put("/api/applications/{application_id}", response_model=CloudApplication)
@@ -1845,13 +1868,13 @@ async def parse_resume_content(filename: str, content: bytes) -> ResumeParseResp
 
 
 @app.post("/api/parse-resume", response_model=ResumeParseResponse)
-async def parse_resume_handler(file: UploadFile = File(...)):
+async def parse_resume_handler(file: UploadFile = File(...), _user: UserInfo = Depends(current_user)):
     filename = file.filename or "resume"
     return await parse_resume_content(filename, await file.read())
 
 
 @app.post("/api/parse-resume-json", response_model=ResumeParseResponse)
-async def parse_resume_json_handler(request: ResumeParseJsonRequest):
+async def parse_resume_json_handler(request: ResumeParseJsonRequest, _user: UserInfo = Depends(current_user)):
     try:
         content = base64.b64decode(request.content_base64, validate=True)
     except (ValueError, TypeError):
@@ -1977,10 +2000,12 @@ async def get_analysis_job_handler(job_id: str, user: UserInfo = Depends(current
 
 async def process_rewrite_job(job_id: str, request: ResumeRewriteRequest, user_id: int) -> None:
     now = int(time.time())
-    execute_sql(
-        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-        ("processing", now, job_id, user_id),
+    claimed = execute_sql_rowcount(
+        "UPDATE analysis_jobs SET status = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = ?",
+        ("processing", now, job_id, user_id, "queued"),
     )
+    if claimed != 1:
+        return
     try:
         result = await request_resume_rewrite(request)
         now = int(time.time())
@@ -2049,18 +2074,18 @@ def get_rewrite_job_handler(job_id: str, user: UserInfo = Depends(current_user))
 
 
 @app.post("/api/screen-jobs", response_model=ScreeningResponse)
-async def screen_jobs_handler(request: ScreeningRequest):
+async def screen_jobs_handler(request: ScreeningRequest, _user: UserInfo = Depends(current_user)):
     return await request_screening(request)
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)
-async def analyze_handler(request: AnalyzeRequest):
+async def analyze_handler(request: AnalyzeRequest, _user: UserInfo = Depends(current_user)):
     payload = await request_analysis(request)
     return normalize_result(payload, request)
 
 
 @app.post("/api/rewrite-resume", response_model=ResumeRewriteResult)
-async def rewrite_resume_handler(request: ResumeRewriteRequest):
+async def rewrite_resume_handler(request: ResumeRewriteRequest, _user: UserInfo = Depends(current_user)):
     return await request_resume_rewrite(request)
 
 
