@@ -457,3 +457,9 @@
 .application-remove-confirm .confirm-modal{width:auto;min-width:430px;max-width:calc(100vw - 32px)}
 .application-remove-confirm .confirm-modal>p{white-space:nowrap;font-size:14px}
 @media(max-width:520px){.application-remove-confirm .confirm-modal{min-width:0}.application-remove-confirm .confirm-modal>p{font-size:12px}.application-create-modal .confirm-actions,.application-remove-confirm .confirm-actions{gap:12px}}
+
+/* Final application alignment correction */
+.application-create-modal .confirm-actions,.application-remove-confirm .confirm-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:16px}
+.application-create-modal .confirm-actions button,.application-remove-confirm .confirm-actions button{width:100%;min-width:0}
+.application-funnel{width:calc(100% - 48px);max-width:1272px}
+@media(max-width:700px){.application-funnel{width:calc(100% - 28px)}}
