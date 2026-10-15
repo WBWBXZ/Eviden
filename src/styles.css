@@ -449,3 +449,11 @@
 
 @media(max-width:1100px){.application-head-actions{align-items:stretch}.application-board{grid-template-columns:repeat(5,220px)}.application-column{min-height:520px}}
 @media(max-width:700px){.application-head-actions{width:100%;display:grid}.application-head-actions>.primary{min-height:44px}.application-summary{display:grid;grid-template-columns:1fr 1fr}.funnel-track{grid-template-columns:1fr 1fr}.application-create-fields{grid-template-columns:1fr}.application-create-fields label.wide{grid-column:auto}}
+
+/* Application modal spacing and funnel alignment */
+.application-funnel{box-shadow:none}
+.application-create-modal .confirm-actions,.application-remove-confirm .confirm-actions{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin-top:24px}
+.application-create-modal .confirm-actions button,.application-remove-confirm .confirm-actions button{min-width:104px}
+.application-remove-confirm .confirm-modal{width:auto;min-width:430px;max-width:calc(100vw - 32px)}
+.application-remove-confirm .confirm-modal>p{white-space:nowrap;font-size:14px}
+@media(max-width:520px){.application-remove-confirm .confirm-modal{min-width:0}.application-remove-confirm .confirm-modal>p{font-size:12px}.application-create-modal .confirm-actions,.application-remove-confirm .confirm-actions{gap:12px}}
