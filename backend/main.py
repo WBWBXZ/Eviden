@@ -51,8 +51,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL and os.getenv("SUPABASE_DB_PASSWORD"):
     db_password = quote(os.getenv("SUPABASE_DB_PASSWORD", ""), safe="")
     db_host = os.getenv("SUPABASE_DB_HOST", "db.fjuiloufsrvewjlvijys.supabase.co")
+    db_port = os.getenv("SUPABASE_DB_PORT", "5432")
     db_user = quote(os.getenv("SUPABASE_DB_USER", "postgres"), safe="")
-    DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:5432/postgres"
+    DATABASE_URL = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/postgres"
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _ANALYSIS_JOBS: Dict[str, Dict[str, Any]] = {}
 _ANALYSIS_JOBS_LOCK = threading.Lock()
@@ -398,8 +399,11 @@ def database_url() -> str:
     if not db_password:
         return ""
     db_host = get_secret("SUPABASE_DB_HOST") or "db.fjuiloufsrvewjlvijys.supabase.co"
+    db_port = get_secret("SUPABASE_DB_PORT") or "5432"
     db_user = get_secret("SUPABASE_DB_USER") or "postgres"
-    _DATABASE_URL_CACHE = "postgresql://{0}:{1}@{2}:5432/postgres".format(quote(db_user, safe=""), quote(db_password, safe=""), db_host)
+    _DATABASE_URL_CACHE = "postgresql://{0}:{1}@{2}:{3}/postgres".format(
+        quote(db_user, safe=""), quote(db_password, safe=""), db_host, db_port
+    )
     return _DATABASE_URL_CACHE
 
 
@@ -549,6 +553,10 @@ def init_db() -> None:
             )
             """,
             """
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires_at
+            ON sessions(expires_at)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS reports (
                 id TEXT NOT NULL,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -616,6 +624,9 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
             """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)"
         )
         connection.execute(
             """
@@ -719,30 +730,15 @@ def create_session(user_id: int) -> str:
 
 
 def authenticate_and_create_session(phone: str, password: str):  # type: ignore[no-untyped-def]
-    token = secrets.token_urlsafe(32)
-    now = int(time.time())
-    with db_connection() as connection:
-        if use_postgres():
-            with connection.cursor() as cursor:
-                cursor.execute("DELETE FROM sessions WHERE expires_at <= %s", (now,))
-                cursor.execute("SELECT * FROM users WHERE phone = %s", (phone,))
-                row = cursor.fetchone()
-                if row is None or not verify_password(password, str(row["password_hash"])):
-                    return None, ""
-                cursor.execute(
-                    "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (%s, %s, %s, %s)",
-                    (token, int(row["id"]), now + TOKEN_TTL_SECONDS, now),
-                )
-                return row, token
-        connection.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
-        row = connection.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
-        if row is None or not verify_password(password, str(row["password_hash"])):
-            return None, ""
-        connection.execute(
-            "INSERT INTO sessions(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
-            (token, int(row["id"]), now + TOKEN_TTL_SECONDS, now),
-        )
-        return row, token
+    row = fetch_one(
+        "SELECT id, phone, password_hash, created_at FROM users WHERE phone = ?",
+        (phone,),
+    )
+    if row is None or not verify_password(password, str(row["password_hash"])):
+        return None, ""
+
+    token = create_session(int(row["id"]))
+    return row, token
 
 
 def user_from_row(row) -> UserInfo:  # type: ignore[no-untyped-def]
@@ -1767,11 +1763,6 @@ def parse_copilot_output(raw_text: str, context_json: str) -> Dict[str, Any]:
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health_handler():
-    if use_postgres():
-        try:
-            fetch_one("SELECT 1")
-        except Exception as error:
-            LOGGER.warning("database warmup deferred: %s", error)
     return HealthResponse(
         ok=True,
         model=model_name(),
