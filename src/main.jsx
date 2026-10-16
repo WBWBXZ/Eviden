@@ -40,7 +40,11 @@ const sampleJD = `AI 产品经理实习生
 - 具备数据分析能力，有 SQL 经验优先。
 - 有用户研究、客户沟通或商业化场景经验加分。`;
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const USE_SAME_ORIGIN_API = window.location.hostname === 'geteviden.cn'
+  || window.location.hostname === 'www.geteviden.cn'
+  || window.location.hostname.endsWith('.vercel.app');
+const API_BASE_URL = USE_SAME_ORIGIN_API ? '' : CONFIGURED_API_BASE_URL;
 const HISTORY_KEY = 'eviden.analysis.history.v1';
 const HISTORY_OWNER_KEY = 'eviden.analysis.history.owner.v1';
 const AUTH_TOKEN_KEY = 'eviden.auth.token.v1';
