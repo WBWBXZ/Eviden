@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://s541z02t.cn-east-fn.bytedance.net/api/:path*"
+    }
+  ]
+}
