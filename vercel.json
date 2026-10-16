@@ -8,11 +8,19 @@
       }
     },
     {
+      "src": "api/auth/index.py",
+      "use": "@vercel/python"
+    },
+    {
       "src": "api/index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
+    {
+      "src": "/api/auth/(.*)",
+      "dest": "api/auth/index.py"
+    },
     {
       "src": "/api/(.*)",
       "dest": "api/index.py"
