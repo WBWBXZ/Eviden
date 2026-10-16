@@ -1765,6 +1765,11 @@ def parse_copilot_output(raw_text: str, context_json: str) -> Dict[str, Any]:
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health_handler():
+    if use_postgres():
+        try:
+            fetch_one("SELECT 1")
+        except Exception as error:
+            LOGGER.warning("database warmup deferred: %s", error)
     return HealthResponse(
         ok=True,
         model=model_name(),
