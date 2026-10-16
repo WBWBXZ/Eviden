@@ -60,7 +60,7 @@ def postgres_pool() -> ThreadedConnectionPool:
         if _DB_POOL is None:
             _DB_POOL = ThreadedConnectionPool(
                 1,
-                3,
+                10,
                 database_url(),
                 cursor_factory=RealDictCursor,
                 connect_timeout=6,
