@@ -251,22 +251,17 @@ async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
 }
 
 async function authRequest(path, payload) {
-  let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 45000);
-    try {
-      return await apiJson(path, { method: 'POST', body: payload, signal: controller.signal });
-    } catch (error) {
-      lastError = error;
-      if (!error.transient && error.name !== 'AbortError') throw error;
-      if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 600));
-    } finally {
-      window.clearTimeout(timer);
-    }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 60000);
+  try {
+    return await apiJson(path, { method: 'POST', body: payload, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('登录服务响应超时，请稍后重新尝试');
+    if (error.transient) throw new Error('登录服务暂时不可用，请稍后重新尝试');
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
   }
-  if (lastError?.name === 'AbortError') throw new Error('登录服务响应较慢，请重新尝试');
-  throw new Error('登录服务连接暂时不稳定，请重新尝试');
 }
 
 const authLogin = (payload) => authRequest('/api/auth/login', payload);
