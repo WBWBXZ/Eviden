@@ -1463,6 +1463,8 @@ app.add_middleware(
     allow_origins=[
         "https://a8223b45ac7d.aime-site.bytedance.net",
         "https://eviden-zh-e.vercel.app",
+        "https://geteviden.cn",
+        "https://www.geteviden.cn",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
