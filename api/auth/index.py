@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 _DB_POOL = None
 _DB_POOL_LOCK = threading.Lock()
+_DB_SEMAPHORE = threading.BoundedSemaphore(3)
 
 app = FastAPI(title="Eviden Auth API")
 
@@ -60,7 +61,7 @@ def postgres_pool() -> ThreadedConnectionPool:
         if _DB_POOL is None:
             _DB_POOL = ThreadedConnectionPool(
                 1,
-                10,
+                3,
                 database_url(),
                 cursor_factory=RealDictCursor,
                 connect_timeout=6,
@@ -77,26 +78,27 @@ def postgres_pool() -> ThreadedConnectionPool:
 
 @contextmanager
 def db_connection():
-    pool = postgres_pool()
-    connection = pool.getconn()
-    close_connection = False
-    try:
-        if connection.closed:
-            pool.putconn(connection, close=True)
-            connection = pool.getconn()
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-        connection.rollback()
-        yield connection
-        connection.commit()
-    except Exception:
+    with _DB_SEMAPHORE:
+        pool = postgres_pool()
+        connection = pool.getconn()
+        close_connection = False
         try:
+            if connection.closed:
+                pool.putconn(connection, close=True)
+                connection = pool.getconn()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
             connection.rollback()
+            yield connection
+            connection.commit()
         except Exception:
-            close_connection = True
-        raise
-    finally:
-        pool.putconn(connection, close=close_connection)
+            try:
+                connection.rollback()
+            except Exception:
+                close_connection = True
+            raise
+        finally:
+            pool.putconn(connection, close=close_connection)
 
 
 def hash_password(password: str, salt: Optional[str] = None) -> str:
