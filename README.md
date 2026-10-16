@@ -6,7 +6,7 @@ Eviden 是一个 evidence-based 求职匹配与投递策略 Web App。用户导�
 
 ## 在线 Demo
 
-https://a8223b45ac7d.aime-site.bytedance.net
+https://www.geteviden.cn
 
 ## 产品预览
 
