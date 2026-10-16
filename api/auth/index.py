@@ -133,6 +133,10 @@ def create_session(user_id: int) -> str:
 
 @app.get("/api/auth/health")
 def health_handler():
+    with db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
     return {"ok": True}
 
 
