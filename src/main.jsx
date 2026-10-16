@@ -254,9 +254,23 @@ async function apiJson(path, { method = 'GET', body, token, signal } = {}) {
   return responseText ? JSON.parse(responseText) : null;
 }
 
+let authWarmupPromise = null;
+
+function warmAuthService() {
+  if (!authWarmupPromise) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 120000);
+    authWarmupPromise = apiJson('/api/auth/health', { signal: controller.signal })
+      .catch(() => null)
+      .finally(() => window.clearTimeout(timer));
+  }
+  return authWarmupPromise;
+}
+
 async function authRequest(path, payload) {
+  await warmAuthService();
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 60000);
+  const timer = window.setTimeout(() => controller.abort(), 120000);
   try {
     return await apiJson(path, { method: 'POST', body: payload, signal: controller.signal });
   } catch (error) {
@@ -829,13 +843,7 @@ function AuthModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 8000);
-    apiJson('/api/health', { signal: controller.signal }).catch(() => {}).finally(() => window.clearTimeout(timer));
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
+    warmAuthService();
   }, []);
   const submit = async () => {
     if (loading) return;
